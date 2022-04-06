@@ -15,6 +15,6 @@
         "@typechain/*": ["typechain-types/*"],
     }
   },
-  "include": ["./scripts", "./test", "./typechain"],
+  "include": ["./scripts", "./test", "./typechain", "utils/test" ],
   "files": ["./hardhat.config.ts"]
 }
