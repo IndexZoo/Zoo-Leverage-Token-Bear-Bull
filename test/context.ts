@@ -2,15 +2,18 @@ import "module-alias/register";
 import "./types";
 
 import { Account } from "@utils/types";
-import {  MAX_UINT_256, ZERO } from "../utils/constants";
+import {  ADDRESS_ZERO, MAX_UINT_256, ZERO } from "../utils/constants";
 
 import { ethers } from "hardhat";
 import { bitcoin, ether } from "../utils/common/unitsUtils";
 
 import {BigNumber, Contract} from "ethers";
+import {AaveV2Fixture} from "@setprotocol/set-protocol-v2/dist/utils/fixtures";
+import {AaveV2AToken} from "@setprotocol/set-protocol-v2/dist/utils/contracts/aaveV2";
 import {StandardTokenMock} from "../typechain-types/StandardTokenMock";
 import { UniswapV2Router02Mock } from "../typechain-types/UniswapV2Router02Mock";
 import { Controller } from "../typechain-types/Controller";
+
 import { SetToken } from "../typechain-types/SetToken";
 import { SetTokenCreator } from "../typechain-types/SetTokenCreator";
 import { StreamingFeeModule } from "../typechain-types/StreamingFeeModule";
@@ -21,8 +24,10 @@ import { abi as SetTokenABI } from "../artifacts/@setprotocol/set-protocol-v2/co
 import { IntegrationRegistry } from "@typechain/IntegrationRegistry";
 import { UniswapV2ExchangeAdapterV3 } from "@typechain/UniswapV2ExchangeAdapterV3";
 // @ts-ignore
-import { getUniswapFixture } from "@setprotocol/set-protocol-v2/dist/utils/test";
+import { getUniswapFixture, getAaveV2Fixture } from "@setprotocol/set-protocol-v2/dist/utils/test";
 import { UniswapV2Router02 } from "@setprotocol/set-protocol-v2/typechain/UniswapV2Router02";
+import { IssuanceModule } from "@typechain/IssuanceModule";
+import { AaveLeverageModule } from "@typechain/AaveLeverageModule";
 
 
 
@@ -82,11 +87,17 @@ interface Tokens {
   btc: StandardTokenMock;
 }
 
+interface ATokens {
+  aWeth: AaveV2AToken;
+}
+
 interface Contracts {
   controller: Controller;
   zooToken: SetToken;
   creator: SetTokenCreator;
   streamingFee: StreamingFeeModule;
+  issuanceModule: IssuanceModule;
+  aaveLeverageModule: AaveLeverageModule;
   integrator: IntegrationRegistry;
 }
 
@@ -94,11 +105,13 @@ interface Contracts {
 class Context {
   public accounts= <Accounts>{};
   public tokens = <Tokens> {};
+  public aTokens = <ATokens>{};
   public ct = <Contracts> {};
   public sets: SetToken[] = [];
   public subjectModule?: CompositeSetIssuanceModule;
 
   public router?: UniswapV2Router02Mock | UniswapV2Router02;
+  public aaveFixture: AaveV2Fixture;
   public exchangeAdapter?: UniswapV2ExchangeAdapterV3;
 
   public async setUniswapIntegration(): Promise<void> {
@@ -106,7 +119,68 @@ class Context {
       this.subjectModule!.address,
       UNISWAP_ADAPTER_NAME,
       this.exchangeAdapter!.address
-    )
+    );
+    await this.ct.integrator.addIntegration(
+      this.ct.aaveLeverageModule.address,
+      UNISWAP_ADAPTER_NAME,
+      this.exchangeAdapter!.address
+    );
+  }
+
+  public async setIssuanceModuleIntegration(): Promise<void> {
+    await this.ct.integrator.addIntegration(
+      this.ct.aaveLeverageModule.address,
+      "DefaultIssuanceModule",
+      this.ct.issuanceModule.address 
+    );
+  }
+
+ /**
+   * @dev creates SetToken via a contract factory
+   */
+  public async createZToken(): Promise<void> {
+      const tx =  await this.ct.creator.create(
+        [this.aTokens.aWeth.address ],
+        [ether(1) ],
+        [
+          this.ct.streamingFee.address,
+          this.ct.aaveLeverageModule.address,
+          this.ct.issuanceModule.address
+        ], 
+        this.accounts.owner.address, 
+        "Lev3x", 
+        "WethBull"
+      );
+      const receipt = await tx.wait();
+      const event = receipt.events?.find(p => p.event == "SetTokenCreated");
+      const tokensetAddress = event? event.args? event.args[0]:"":"";
+
+      let deployedSetToken =  await ethers.getContractAt(SetTokenABI, tokensetAddress) as SetToken;
+      this.sets.push(deployedSetToken );
+
+      await this.ct.issuanceModule.initialize(
+        deployedSetToken.address,
+        ether(0),
+        ether(0),
+        ether(0),
+        this.accounts.owner.address,
+        ADDRESS_ZERO
+      );
+
+      await this.ct.streamingFee.initialize(
+        deployedSetToken.address, {
+         feeRecipient: this.accounts.protocolFeeRecipient.address,
+         maxStreamingFeePercentage: ether(0.05),
+         streamingFeePercentage: ether(0.01),
+         lastStreamingFeeTimestamp: 0
+      });
+
+      await this.ct.aaveLeverageModule.updateAllowedSetToken(deployedSetToken.address, true);
+      await this.ct.aaveLeverageModule.initialize(
+        deployedSetToken.address,
+        [this.tokens.weth.address, this.tokens.dai.address],
+        [this.tokens.dai.address, this.tokens.weth.address]
+      );
   }
 
  /**
@@ -173,7 +247,7 @@ class Context {
     ] = await getAccounts();
      
       /* ================================================== DeFi Fixtures ==================================================*/
-      // this.aaveFixture = getAaveV2Fixture(this.accounts.owner.address);
+      this.aaveFixture = getAaveV2Fixture(this.accounts.owner.address);
       this.tokens.dai =  await (await ethers.getContractFactory("StandardTokenMock")).deploy(this.accounts.owner.address, ether(100000000), "MockDai", "MDAI", 18);
       this.tokens.btc = await (await ethers.getContractFactory("StandardTokenMock")).deploy(this.accounts.owner.address, bitcoin(1000000), "MockBtc", "MBTC", 8);
       this.tokens.weth = await new WETH9__factory(this.accounts.owner.wallet).deploy();
@@ -185,6 +259,23 @@ class Context {
       this.router = isMockDex? 
          await initUniswapMockRouter(this.accounts.owner, this.tokens.weth, this.tokens.dai, this.tokens.btc):
          await initUniswapRouter(this.accounts.owner, this.tokens.weth, this.tokens.dai, this.tokens.btc);      
+
+      await this.aaveFixture.initialize(this.tokens.weth.address, this.tokens.dai.address);
+      await this.tokens.weth.approve(this.aaveFixture.lendingPool.address, MAX_UINT_256);
+      await this.tokens.dai.approve(this.aaveFixture.lendingPool.address, MAX_UINT_256);
+      await this.aaveFixture.lendingPool.deposit(
+        this.tokens.weth.address,
+        ether(10),
+        this.accounts.owner.address,
+        ZERO
+      );
+      await this.aaveFixture.lendingPool.deposit(
+        this.tokens.dai.address,
+        ether(10000),
+        this.accounts.owner.address,
+        ZERO
+      );
+      this.aTokens.aWeth = this.aaveFixture.wethReserveTokens.aToken;
       /* ============================================= Zoo Ecosystem ==============================================================*/
       this.ct.controller =  await (await ethers.getContractFactory("Controller")).deploy(
         this.accounts.protocolFeeRecipient.address
@@ -198,6 +289,17 @@ class Context {
       this.ct.streamingFee = await (await ethers.getContractFactory("StreamingFeeModule")).deploy(
         this.ct.controller.address
       );
+      this.ct.issuanceModule  = await (await ethers.getContractFactory("IssuanceModule")).deploy(
+        this.ct.controller.address
+      );
+      let aaveV2Lib = await (await ethers.getContractFactory("AaveV2")).deploy();
+      this.ct.aaveLeverageModule = await (await ethers.getContractFactory(
+        "AaveLeverageModule",{
+          libraries: {AaveV2: aaveV2Lib.address} 
+        })).deploy(
+        this.ct.controller.address,
+        this.aaveFixture.lendingPoolAddressesProvider.address 
+      );
       this.ct.integrator = await (await ethers.getContractFactory("IntegrationRegistry"))
         .deploy(this.ct.controller.address);
 
@@ -205,7 +307,9 @@ class Context {
         [this.ct.creator.address],
         [
           this.subjectModule.address,
-          this.ct.streamingFee.address 
+          this.ct.streamingFee.address,
+          this.ct.aaveLeverageModule.address,
+          this.ct.issuanceModule.address 
         ],
         [this.ct.integrator.address],
         [INTEGRATION_REGISTRY_RESOURCE_ID]
@@ -215,7 +319,9 @@ class Context {
         this.router!.address 
       );
       await this.setUniswapIntegration();
+      await this.setIssuanceModuleIntegration();
       await this.createSetToken();
+      await this.createZToken();
   }
 }
 

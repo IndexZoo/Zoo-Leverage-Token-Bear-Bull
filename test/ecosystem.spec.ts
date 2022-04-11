@@ -17,6 +17,7 @@ import {initUniswapRouter} from "./context";
 import { WETH9 } from "@typechain/WETH9";
 import { BigNumber, Wallet } from "ethers";
 import { UniswapV2Router02 } from "@setprotocol/set-protocol-v2/typechain/UniswapV2Router02";
+import { SetToken } from "@typechain/SetToken";
 chai.use(solidity);
 chai.use(approx);
 
@@ -67,7 +68,7 @@ describe("Testing Ecosystem", function () {
       });
     });
 
-    describe.only("Aave", async function() {
+    describe("Aave", async function() {
       let aaveFixture: AaveV2Fixture;
       let aaveLender: AaveV2LendingPool;
       let router: UniswapV2Router02;
@@ -168,5 +169,42 @@ describe("Testing Ecosystem", function () {
 
       });
     });
+    describe.only("AaveLeverageModule", async function() {
+      let aaveLender: AaveV2LendingPool;
+      let zToken: SetToken;
+      beforeEach("", async function(){
+        aaveLender = ctx.aaveFixture.lendingPool;
+        zToken = ctx.sets[1];
+      });
+      it("Verify AaveLeverageModule & IssuanceModule are hooked to SetToken", async function() {
+        let modules = await zToken.getModules();
+        expect(modules).to.contain(ctx.ct.aaveLeverageModule.address);
+        expect(modules).to.contain(ctx.ct.issuanceModule.address);
+        expect(modules).to.contain(ctx.ct.streamingFee.address);
+      });
+      it.only("Issue 1 Z", async function() {
+        // FIXME: complete this
+        console.log(await ctx.aTokens.aWeth.balanceOf(bob.address));
+        await weth.connect(bob.wallet).approve(aaveLender.address, ether(1));
+        await ctx.aTokens.aWeth.connect(bob.wallet).approve(ctx.ct.issuanceModule.address, ether(1));
+        await aaveLender.connect(bob.wallet).deposit(weth.address, ether(1), bob.address, 0);
+        console.log(await ctx.aTokens.aWeth.balanceOf(bob.address));
+        console.log(await ctx.aTokens.aWeth.balanceOf(zToken.address));
+        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, ether(1), bob.address);
+        console.log(await ctx.aTokens.aWeth.balanceOf(zToken.address));
 
+        await ctx.ct.aaveLeverageModule.lever(
+          zToken.address,
+          dai.address,
+          weth.address,
+          ether(800),
+          ether(0.75),
+          "UNISWAP",
+          "0x"
+        );
+        console.log(await ctx.aTokens.aWeth.balanceOf(zToken.address));
+
+      });
+    });
+ 
 });
