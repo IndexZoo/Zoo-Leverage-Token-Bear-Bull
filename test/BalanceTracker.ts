@@ -37,6 +37,10 @@ export class BalanceTracker {
         return this._earnedWithReversedIndex(address, -1)?.mul(-1);
     }
 
+    public lastSpent(address: string) : BigNumber | undefined {
+        return this._earnedWithReversedIndex(address, 2)?.mul(-1);
+    }
+
     public lastEarned(address: string) : BigNumber | undefined {
         return this._earnedWithReversedIndex(address, 2);
     }

@@ -27,7 +27,9 @@ import { UniswapV2ExchangeAdapterV3 } from "@typechain/UniswapV2ExchangeAdapterV
 import { getUniswapFixture, getAaveV2Fixture } from "@setprotocol/set-protocol-v2/dist/utils/test";
 import { UniswapV2Router02 } from "@setprotocol/set-protocol-v2/typechain/UniswapV2Router02";
 import { IssuanceModule } from "@typechain/IssuanceModule";
+import { Lev3xIssuanceModule } from "@typechain/Lev3xIssuanceModule";
 import { AaveLeverageModule } from "@typechain/AaveLeverageModule";
+import { Lev3xModuleIssuanceHook } from "@typechain/Lev3xModuleIssuanceHook";
 
 
 
@@ -96,7 +98,8 @@ interface Contracts {
   zooToken: SetToken;
   creator: SetTokenCreator;
   streamingFee: StreamingFeeModule;
-  issuanceModule: IssuanceModule;
+  issuanceModule: Lev3xIssuanceModule;
+  lev3xModuleIssuanceHook: Lev3xModuleIssuanceHook;
   aaveLeverageModule: AaveLeverageModule;
   integrator: IntegrationRegistry;
 }
@@ -145,7 +148,8 @@ class Context {
         [
           this.ct.streamingFee.address,
           this.ct.aaveLeverageModule.address,
-          this.ct.issuanceModule.address
+          this.ct.issuanceModule.address,
+          this.ct.lev3xModuleIssuanceHook.address
         ], 
         this.accounts.owner.address, 
         "Lev3x", 
@@ -181,6 +185,11 @@ class Context {
         [this.tokens.weth.address, this.tokens.dai.address],
         [this.tokens.dai.address, this.tokens.weth.address]
       );
+
+      // -------------- Hooks -------------
+      await this.ct.lev3xModuleIssuanceHook.initialize(deployedSetToken.address);
+      await this.ct.lev3xModuleIssuanceHook.registerToIssuanceModule(deployedSetToken.address);
+
   }
 
  /**
@@ -289,8 +298,12 @@ class Context {
       this.ct.streamingFee = await (await ethers.getContractFactory("StreamingFeeModule")).deploy(
         this.ct.controller.address
       );
-      this.ct.issuanceModule  = await (await ethers.getContractFactory("IssuanceModule")).deploy(
-        this.ct.controller.address
+      this.ct.issuanceModule  = await (await ethers.getContractFactory("Lev3xIssuanceModule")).deploy(
+        this.ct.controller.address,
+        this.aaveFixture.lendingPool.address
+      );
+      this.ct.lev3xModuleIssuanceHook = await (await ethers.getContractFactory("Lev3xModuleIssuanceHook")).deploy(
+        this.ct.issuanceModule.address
       );
       let aaveV2Lib = await (await ethers.getContractFactory("AaveV2")).deploy();
       this.ct.aaveLeverageModule = await (await ethers.getContractFactory(
@@ -309,7 +322,8 @@ class Context {
           this.subjectModule.address,
           this.ct.streamingFee.address,
           this.ct.aaveLeverageModule.address,
-          this.ct.issuanceModule.address 
+          this.ct.issuanceModule.address,
+          this.ct.lev3xModuleIssuanceHook.address 
         ],
         [this.ct.integrator.address],
         [INTEGRATION_REGISTRY_RESOURCE_ID]

@@ -4,7 +4,7 @@ import { solidity } from "ethereum-waffle";
 import {AaveV2Fixture} from "@setprotocol/set-protocol-v2/dist/utils/fixtures";
 import {AaveV2LendingPool} from "@setprotocol/set-protocol-v2/typechain/AaveV2LendingPool";
 
-import {ether, approx} from "../utils/helpers";
+import {ether, approx, preciseMul} from "../utils/helpers";
 
 import "./types";
 import { Context } from "./context";
@@ -172,9 +172,11 @@ describe("Testing Ecosystem", function () {
     describe.only("AaveLeverageModule", async function() {
       let aaveLender: AaveV2LendingPool;
       let zToken: SetToken;
+      let aWethTracker: BalanceTracker;
       beforeEach("", async function(){
         aaveLender = ctx.aaveFixture.lendingPool;
         zToken = ctx.sets[1];
+        aWethTracker = new BalanceTracker(ctx.aTokens.aWeth);
       });
       it("Verify AaveLeverageModule & IssuanceModule are hooked to SetToken", async function() {
         let modules = await zToken.getModules();
@@ -182,17 +184,81 @@ describe("Testing Ecosystem", function () {
         expect(modules).to.contain(ctx.ct.issuanceModule.address);
         expect(modules).to.contain(ctx.ct.streamingFee.address);
       });
-      it.only("Issue 1 Z", async function() {
-        // FIXME: complete this
-        console.log(await ctx.aTokens.aWeth.balanceOf(bob.address));
-        await weth.connect(bob.wallet).approve(aaveLender.address, ether(1));
-        await ctx.aTokens.aWeth.connect(bob.wallet).approve(ctx.ct.issuanceModule.address, ether(1));
-        await aaveLender.connect(bob.wallet).deposit(weth.address, ether(1), bob.address, 0);
-        console.log(await ctx.aTokens.aWeth.balanceOf(bob.address));
-        console.log(await ctx.aTokens.aWeth.balanceOf(zToken.address));
-        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, ether(1), bob.address);
-        console.log(await ctx.aTokens.aWeth.balanceOf(zToken.address));
+      it("Issue 1 Z", async function() {
+        let quantity = ether(1);
+        let ltv = ether(0.8);
+        let price = 1000;
+        await aWethTracker.pushMultiple([bob.address, zToken.address]);
+        
+        await weth.connect(bob.wallet).approve(aaveLender.address, quantity);
+        await ctx.aTokens.aWeth.connect(bob.wallet).approve(ctx.ct.issuanceModule.address, quantity);
+        await aaveLender.connect(bob.wallet).deposit(weth.address, quantity, bob.address, 0);
+        await aWethTracker.pushMultiple([bob.address, zToken.address]);
+        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantity, bob.address);
+        await aWethTracker.pushMultiple([bob.address, zToken.address]);
+        expect(aWethTracker.lastSpent(bob.address)).to.be.eq(quantity);
+        expect(aWethTracker.lastEarned(zToken.address)).to.be.eq( quantity );
 
+        await ctx.ct.aaveLeverageModule.lever(
+          zToken.address,
+          dai.address,
+          weth.address,
+          ltv.mul(price),
+          preciseMul(ltv, ether(0.9)),
+          "UNISWAP",
+          "0x"
+        );
+        await aWethTracker.pushMultiple([bob.address, zToken.address]);
+        expect(aWethTracker.lastEarned(zToken.address)).to.be.eq(preciseMul( quantity, ltv));
+      });
+
+      it("Issue then verify redeem of 1 Z", async function() {
+        let quantity = ether(1);
+        await weth.connect(bob.wallet).approve(aaveLender.address, quantity);
+        await ctx.aTokens.aWeth.connect(bob.wallet).approve(ctx.ct.issuanceModule.address, quantity);
+
+        await aaveLender.connect(bob.wallet).deposit(weth.address, quantity, bob.address, 0);
+        await aWethTracker.pushMultiple([bob.address, zToken.address]);
+        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantity, bob.address);
+        await aWethTracker.pushMultiple([bob.address, zToken.address]);
+        
+        await ctx.ct.issuanceModule.connect(bob.wallet).redeem(zToken.address, quantity, bob.address);
+        await aWethTracker.pushMultiple([bob.address, zToken.address]);
+
+        expect(aWethTracker.lastSpent(zToken.address)).to.be.eq(quantity);
+        expect(aWethTracker.lastEarned(bob.address)).to.be.eq(quantity);
+        expect(aWethTracker.totalEarned(zToken.address)).to.be.eq(ether(0));
+      });
+
+      it.only("Issue then verify redeem part of it ", async function() {
+        let quantity = ether(1);
+        let redeemQuantity = ether(0.55);
+        await weth.connect(bob.wallet).approve(aaveLender.address, quantity);
+        await ctx.aTokens.aWeth.connect(bob.wallet).approve(ctx.ct.issuanceModule.address, quantity);
+
+        await aaveLender.connect(bob.wallet).deposit(weth.address, quantity, bob.address, 0);
+        await aWethTracker.pushMultiple([bob.address, zToken.address]);
+        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantity, bob.address);
+        await aWethTracker.pushMultiple([bob.address, zToken.address]);
+        
+        await ctx.ct.issuanceModule.connect(bob.wallet).redeem(zToken.address, redeemQuantity, bob.address);
+        await aWethTracker.pushMultiple([bob.address, zToken.address]);
+
+        expect(aWethTracker.lastSpent(zToken.address)).to.be.eq(redeemQuantity);
+        expect(aWethTracker.lastEarned(bob.address)).to.be.eq(redeemQuantity);
+        expect(aWethTracker.totalEarned(zToken.address)).to.be.eq(quantity.sub(redeemQuantity));
+      });
+
+      it.skip("Issue then verify redeem of 1 Z after leveraging", async function() {
+        // TODO: TODO: redeem the withdrawable portion
+        let quantity = ether(1);
+        await weth.connect(bob.wallet).approve(aaveLender.address, quantity);
+        await ctx.aTokens.aWeth.connect(bob.wallet).approve(ctx.ct.issuanceModule.address, quantity);
+
+        await aaveLender.connect(bob.wallet).deposit(weth.address, quantity, bob.address, 0);
+        await aWethTracker.pushMultiple([bob.address, zToken.address]);
+        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantity, bob.address);
+        await aWethTracker.pushMultiple([bob.address, zToken.address]);
         await ctx.ct.aaveLeverageModule.lever(
           zToken.address,
           dai.address,
@@ -202,9 +268,66 @@ describe("Testing Ecosystem", function () {
           "UNISWAP",
           "0x"
         );
-        console.log(await ctx.aTokens.aWeth.balanceOf(zToken.address));
+        await aWethTracker.pushMultiple([bob.address, zToken.address]);
+        // FIXME: need change , can't transfer debt from redeemer to zToken
+
+        await ctx.ct.issuanceModule.connect(bob.wallet).redeem(zToken.address, quantity, bob.address);
+        await aWethTracker.pushMultiple([bob.address, zToken.address]);
+        expect(aWethTracker.lastSpent(zToken.address)).to.be.eq(quantity.add(ether(0.8)));
+        expect(aWethTracker.lastEarned(bob.address)).to.be.eq(quantity);
+        expect(aWethTracker.totalEarned(zToken.address)).to.be.eq(ether(0));
 
       });
+
+      it.skip("Issue then verify redeem of 1 Z after leveraging", async function() {
+        let quantity = ether(1);
+        await weth.connect(bob.wallet).approve(aaveLender.address, quantity);
+        await ctx.aTokens.aWeth.connect(bob.wallet).approve(ctx.ct.issuanceModule.address, quantity);
+
+        await aaveLender.connect(bob.wallet).deposit(weth.address, quantity, bob.address, 0);
+        await aWethTracker.pushMultiple([bob.address, zToken.address]);
+        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantity, bob.address);
+        await aWethTracker.pushMultiple([bob.address, zToken.address]);
+        await ctx.ct.aaveLeverageModule.lever(
+          zToken.address,
+          dai.address,
+          weth.address,
+          ether(800),
+          ether(0.75),
+          "UNISWAP",
+          "0x"
+        );
+        await aWethTracker.pushMultiple([bob.address, zToken.address]);
+        // FIXME: need change , can't transfer debt from redeemer to zToken
+
+        await ctx.ct.issuanceModule.connect(bob.wallet).redeem(zToken.address, quantity, bob.address);
+        await aWethTracker.pushMultiple([bob.address, zToken.address]);
+        expect(aWethTracker.lastSpent(zToken.address)).to.be.eq(quantity.add(ether(0.8)));
+        expect(aWethTracker.lastEarned(bob.address)).to.be.eq(quantity);
+        expect(aWethTracker.totalEarned(zToken.address)).to.be.eq(ether(0));
+
+      });
+
+      it("", async function () {
+        console.log(ctx.ct.controller.address);
+        console.log(ctx.ct.streamingFee.address);
+        console.log(ctx.ct.aaveLeverageModule.address);
+        // FIXME: check hooks of AaveLeverageModule
+
+        console.log(ctx.ct.lev3xModuleIssuanceHook.address);
+        console.log(await ctx.ct.issuanceModule.getModuleIssuanceHooks(zToken.address));
+      });
+
+        // TODO: TODO:  No need for hook / Work on Lev3xIssuanceModule::getIssuanceUnits
+        // TODO: TODO:  Test Lever limit / Test delever limit (lever twice and try delever once)
+
+        // TODO: redeem nav
+        // TODO:  resolveDebtPositions by implementing new issuanceModule 
+        // - callModulePreredeemHook changes virtualUnit - equityUnits = units-debt , debtUnits=0 - resolve
+        // TODO: Multiple Lever
+        // TODO: test with price change 
+        // TODO: streamfees
+        // TODO: Rebalance
     });
  
 });
