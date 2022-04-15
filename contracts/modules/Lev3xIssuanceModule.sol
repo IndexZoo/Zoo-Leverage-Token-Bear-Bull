@@ -28,8 +28,18 @@ import { Invoke } from "@setprotocol/set-protocol-v2/contracts/protocol/lib/Invo
 import { ISetToken } from "@setprotocol/set-protocol-v2/contracts/interfaces/ISetToken.sol";
 import { IssuanceValidationUtils } from "@setprotocol/set-protocol-v2/contracts/protocol/lib/IssuanceValidationUtils.sol";
 import { Position } from "@setprotocol/set-protocol-v2/contracts/protocol/lib/Position.sol";
+import { PreciseUnitMath } from "@setprotocol/set-protocol-v2/contracts/lib/PreciseUnitMath.sol";
 import { ILendingPool } from "@setprotocol/set-protocol-v2/contracts/interfaces/external/aave-v2/ILendingPool.sol";
+import { ILendingPoolAddressesProvider } from "@setprotocol/set-protocol-v2/contracts/interfaces/external/aave-v2/ILendingPoolAddressesProvider.sol";
 import { console } from "hardhat/console.sol";
+
+
+interface IPriceOracleGetter {
+    function getAssetPrice(address _asset) external view returns (uint256);
+    function getAssetsPrices(address[] calldata _assets) external view returns(uint256[] memory);
+    function getSourceOfAsset(address _asset) external view returns(address);
+    function getFallbackOracle() external view returns(address);
+}
 
 /**
  * @title Lev3xIssuanceModule
@@ -54,12 +64,15 @@ import { console } from "hardhat/console.sol";
  */
 contract Lev3xIssuanceModule is DebtIssuanceModule {
     using Position for uint256;
+    using PreciseUnitMath for int256;
+    ILendingPoolAddressesProvider public lendingPoolAddressesProvider;
     ILendingPool public lender;
     
     /* ============ Constructor ============ */
     
-    constructor(IController _controller, ILendingPool _lender) public DebtIssuanceModule(_controller) {
-        lender = _lender;
+    constructor(IController _controller, ILendingPoolAddressesProvider _lendingPoolAddressesProvider) public DebtIssuanceModule(_controller) {
+        lendingPoolAddressesProvider = _lendingPoolAddressesProvider;
+        lender = ILendingPool(lendingPoolAddressesProvider.getLendingPool());
     }
 
     // TODO: NB: componentRedeemHook of AaveLeverageModule is only called on resolveDebtPositions
@@ -156,27 +169,35 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
 
         _callModulePreRedeemHooks(_setToken, _quantity);
 
+        uint256 initialSetSupply = _setToken.totalSupply();
+
         (
             uint256 quantityNetFees,
             uint256 managerFee,
             uint256 protocolFee
         ) = calculateTotalFees(_setToken, _quantity, false);
 
-        (
-            address[] memory components,
-            uint256[] memory equityUnits,
-            uint256[] memory debtUnits
-        ) = _calculateRequiredComponentIssuanceUnitsV2(_setToken, quantityNetFees, false);
-        console.log(equityUnits[0]);
-        console.log(debtUnits[0]);
+        // Prevent stack too deep
+        {
+            (
+                address[] memory components,
+                uint256[] memory equityUnits,
+                uint256[] memory debtUnits
+            ) = _calculateRequiredComponentIssuanceUnitsV2(_setToken, quantityNetFees, false);
+            console.log("--rdeeem--");
+            console.log(equityUnits[0]);
+            console.log(debtUnits[0]);
+            console.log("---------");
 
-        // Place burn after pre-redeem hooks because burning tokens may lead to false accounting of synced positions
-        _setToken.burn(msg.sender, _quantity);
+            uint256 finalSetSupply = initialSetSupply.sub(quantityNetFees);
+            // Place burn after pre-redeem hooks because burning tokens may lead to false accounting of synced positions
+            _setToken.burn(msg.sender, _quantity);
 
-        _resolveDebtPositions(_setToken, quantityNetFees, false, components, debtUnits);
-        _resolveEquityPositions(_setToken, quantityNetFees, _to, false, components, equityUnits);
-        _resolveFees(_setToken, managerFee, protocolFee);
-        // TODO: convert redeemed aToken to token
+            _resolveDebtPositions(_setToken, quantityNetFees, false, components, debtUnits, initialSetSupply, finalSetSupply);
+            _resolveEquityPositions(_setToken, quantityNetFees, _to, false, components, equityUnits, initialSetSupply, finalSetSupply);
+            _resolveFees(_setToken, managerFee, protocolFee);
+            // TODO: convert redeemed aToken to token
+        }
 
         emit SetTokenRedeemed(
             _setToken,
@@ -187,8 +208,6 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
             protocolFee
         );
     }
-
-
 
 
     /* ============ External View Functions ============ */
@@ -264,6 +283,10 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
         for (uint256 i = 0; i < _components.length; i++) {
             address component = _components[i];
             uint256 componentQuantity = _componentEquityQuantities[i];
+            console.log("--- resolveEquity-----");
+            console.log(_components.length);
+            console.log(componentQuantity);
+            console.log(component);
             if (componentQuantity > 0) {
                 if (_isIssue) {
                     // Call SafeERC20#safeTransferFrom instead of ExplicitERC20#transferFrom
@@ -281,6 +304,7 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
                     _executeExternalPositionHooks(_setToken, _quantity, IERC20(component), false, true);
 
                     // Call Invoke#invokeTransfer instead of Invoke#strictInvokeTransfer
+
                     _setToken.invokeTransfer(component, _to, componentQuantity);
 
                     IssuanceValidationUtils.validateCollateralizationPostTransferOut(_setToken, component, _finalSetSupply);
@@ -358,24 +382,26 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
         {
             // TODO: TODO: Wire it with AaveLeverageModule / execute a delever if not enough withdrawable
             (
-                address[] memory components,
-                uint256[] memory equityUnits,
-                uint256[] memory debtUnits
+                address _components,
+                uint256 equityUnits,
+                uint256 debtUnits
             ) = _getTotalIssuanceUnitsV2(_setToken, _isIssue);
+            address[] memory components = new address[](1);
+            components[0] = (_components);
 
-            uint256 componentsLength = components.length;
+            uint256 componentsLength = 1;
             uint256[] memory totalEquityUnits = new uint256[](componentsLength);
             uint256[] memory totalDebtUnits = new uint256[](componentsLength);
-            for (uint256 i = 0; i < components.length; i++) {
+            for (uint256 i = 0; i < componentsLength; i++) {
                 // Use preciseMulCeil to round up to ensure overcollateration when small issue quantities are provided
                 // and preciseMul to round down to ensure overcollateration when small redeem quantities are provided
                 totalEquityUnits[i] = _isIssue ?
-                    equityUnits[i].preciseMulCeil(_quantity) :
-                    equityUnits[i].preciseMul(_quantity);
+                    equityUnits.preciseMulCeil(_quantity) :
+                    equityUnits.preciseMul(_quantity);
 
                 totalDebtUnits[i] = _isIssue ?
-                    debtUnits[i].preciseMul(_quantity) :
-                    debtUnits[i].preciseMulCeil(_quantity);
+                    debtUnits.preciseMul(_quantity) :
+                    debtUnits.preciseMulCeil(_quantity);
             }
 
             return (components, totalEquityUnits, totalDebtUnits);
@@ -396,54 +422,63 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
         )
             internal
             view
-            returns (address[] memory, uint256[] memory, uint256[] memory)
+            returns (address , uint256 , uint256 )
         {
             address[] memory components = _setToken.getComponents();
-            uint256 componentsLength = components.length;
 
-            uint256[] memory equityUnits = new uint256[](componentsLength);
-            uint256[] memory debtUnits = new uint256[](componentsLength);
-            uint256 cumulativeEquity;
+            // FIXME: This should be 1.8 ether -- zToken.getPostions() showing that
+            uint256 cumulativeEquity = _setToken.getDefaultPositionRealUnit(components[0]).toUint256();   // starts by the base component of setToken
             uint256 cumulativeDebt;
-            (
-                uint256 totalCollateralETH, 
-                uint256 totalDebtETH,
-            ,,,) = lender.getUserAccountData(address(_setToken)); 
+            // (
+            //     uint256 totalCollateralETH, 
+            //     uint256 totalDebtETH,
+            // ,,,) = lender.getUserAccountData(address(_setToken)); 
 
-            for (uint256 i = 0; i < components.length; i++) {
+            for (uint256 i = 1; i < components.length; i++) {
                 address component = components[i];
-                // TODO: TODO: adjust issue and redeem logic according to sync()
+                // TODO: adjust issue and redeem logic according to sync()
                 // TODO: work on formulation considering swap fees with delever
-                // FIXME: work with synced positionRealUnit
 
-                cumulativeEquity = _isIssue? 
-                    _setToken.getDefaultPositionRealUnit(component).toUint256(): totalCollateralETH.preciseDiv(_setToken.totalSupply());
+                (uint256 tEquity, uint256 tDebt) = _accumulateExternalPositions(_setToken, component);
+                cumulativeEquity = cumulativeEquity.add(tEquity);
+                cumulativeDebt = cumulativeDebt.add(tDebt);
+                console.log("--cumulative equity ---");
+                console.log(cumulativeEquity);
+                console.log(cumulativeDebt);
+                // cumulativeEquity = _isIssue? 
+                //     _setToken.getDefaultPositionRealUnit(component).toUint256(): totalCollateralETH.preciseDiv(_setToken.totalSupply());
 
 
                 // TODO: might not need Lev3xModuleIssuanceHook in that case
-                cumulativeDebt = _isIssue?0:totalDebtETH.preciseDivCeil(_setToken.totalSupply());
-                // address[] memory externalPositions = _setToken.getExternalPositionModules(component);
-
-                // if (externalPositions.length > 0) {
-                //     for (uint256 j = 0; j < externalPositions.length; j++) { 
-                //         int256 externalPositionUnit = _setToken.getExternalPositionRealUnit(component, externalPositions[j]);
-
-                //         // If positionUnit <= 0 it will be "added" to debt position
-                //         if (externalPositionUnit > 0) {
-                //             cumulativeEquity = cumulativeEquity.add(externalPositionUnit);
-                //         } else {
-                //             cumulativeDebt = cumulativeDebt.add(externalPositionUnit);
-                //         }
-                //     }
-                // }
-
-                equityUnits[i] = cumulativeEquity;
-                debtUnits[i] = cumulativeDebt;
-                equityUnits[i] = equityUnits[i].sub(debtUnits[i]);
-                debtUnits[i] = 0;
+                // cumulativeDebt = _isIssue?0:totalDebtETH.preciseDivCeil(_setToken.totalSupply());
             }
-
-            return (components, equityUnits, debtUnits);
+            cumulativeEquity = cumulativeEquity.sub(cumulativeDebt);
+            cumulativeDebt = 0;
+            return (components[0], cumulativeEquity, cumulativeDebt);
         }
+    
+    function _accumulateExternalPositions(
+        ISetToken _setToken,
+        address _component 
+    )
+    internal
+    view
+    returns (uint256 cumulativeEquity, uint256 cumulativeDebt) {
+        IPriceOracleGetter priceOracle = IPriceOracleGetter(lendingPoolAddressesProvider.getPriceOracle());
+        int256 price = priceOracle.getAssetPrice(_component).toInt256();
+                address[] memory externalPositions = _setToken.getExternalPositionModules(_component);
+                if (externalPositions.length > 0) {
+                    for (uint256 j = 0; j < externalPositions.length; j++) { 
+                        int256 externalPositionUnit = _setToken.getExternalPositionRealUnit(_component, externalPositions[j]).preciseMul(price);
+
+                        // If positionUnit <= 0 it will be "added" to debt position
+                        if (externalPositionUnit > 0) {
+                            cumulativeEquity = cumulativeEquity.add(externalPositionUnit.toUint256());
+                        } else {
+                            cumulativeDebt = cumulativeDebt.add(externalPositionUnit.mul(-1).toUint256());
+                        }
+                    }
+                }
+    }
    
 }

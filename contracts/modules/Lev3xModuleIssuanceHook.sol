@@ -69,12 +69,12 @@ contract Lev3xModuleIssuanceHook is IModuleIssuanceHook {
 
     function moduleIssueHook(ISetToken _setToken, uint256 _setTokenQuantity) external override {}
     function moduleRedeemHook(ISetToken _setToken, uint256 _setTokenQuantity) external override {
-        console.log("preRedeemHook called");
-        // TODO: change virtualUnit
-        address[] memory  components = _setToken.getComponents();
-        for (uint64 i; i < components.length; i++ ) {
-            _setToken.editExternalPosition(components[i], address(this), 0, "");
-        }
+        // console.log("preRedeemHook called");
+        // // TODO: change virtualUnit
+        // address[] memory  components = _setToken.getComponents();
+        // for (uint64 i; i < components.length; i++ ) {
+        //     _setToken.editExternalPosition(components[i], address(this), 0, "");
+        // }
     }
 
     function componentIssueHook(

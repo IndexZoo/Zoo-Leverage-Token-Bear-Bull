@@ -300,7 +300,7 @@ class Context {
       );
       this.ct.issuanceModule  = await (await ethers.getContractFactory("Lev3xIssuanceModule")).deploy(
         this.ct.controller.address,
-        this.aaveFixture.lendingPool.address
+        this.aaveFixture.lendingPoolAddressesProvider.address
       );
       this.ct.lev3xModuleIssuanceHook = await (await ethers.getContractFactory("Lev3xModuleIssuanceHook")).deploy(
         this.ct.issuanceModule.address

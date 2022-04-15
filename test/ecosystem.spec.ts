@@ -257,35 +257,7 @@ describe("Testing Ecosystem", function () {
         expect(aWethTracker.totalEarned(zToken.address)).to.be.eq(quantity.sub(redeemQuantity));
       });
 
-      it.skip("Issue then verify redeem of 1 Z after leveraging", async function() {
-        // TODO: TODO: redeem the withdrawable portion
-        let quantity = ether(1);
-        await weth.connect(bob.wallet).approve(aaveLender.address, quantity);
-        await ctx.aTokens.aWeth.connect(bob.wallet).approve(ctx.ct.issuanceModule.address, quantity);
 
-        await aaveLender.connect(bob.wallet).deposit(weth.address, quantity, bob.address, 0);
-        await aWethTracker.pushMultiple([bob.address, zToken.address]);
-        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantity, bob.address);
-        await aWethTracker.pushMultiple([bob.address, zToken.address]);
-        await ctx.ct.aaveLeverageModule.lever(
-          zToken.address,
-          dai.address,
-          weth.address,
-          ether(800),
-          ether(0.75),
-          "UNISWAP",
-          "0x"
-        );
-        await aWethTracker.pushMultiple([bob.address, zToken.address]);
-        // FIXME: need change , can't transfer debt from redeemer to zToken
-
-        await ctx.ct.issuanceModule.connect(bob.wallet).redeem(zToken.address, quantity, bob.address);
-        await aWethTracker.pushMultiple([bob.address, zToken.address]);
-        expect(aWethTracker.lastSpent(zToken.address)).to.be.eq(quantity.add(ether(0.8)));
-        expect(aWethTracker.lastEarned(bob.address)).to.be.eq(quantity);
-        expect(aWethTracker.totalEarned(zToken.address)).to.be.eq(ether(0));
-
-      });
 
       it("Sync -- verify sync produces the proper positionUnit", async function() {
         let quantity = ether(1);
@@ -324,6 +296,40 @@ describe("Testing Ecosystem", function () {
         await ctx.aaveFixture.setAssetPriceInOracle(dai.address, newDaiPrice);
         await ctx.ct.aaveLeverageModule.sync(zToken.address);
         expect(await zToken.getDefaultPositionRealUnit(ctx.aTokens.aWeth.address)).to.be.approx(ether(0.2));
+
+      });
+
+      it.only("Issue then verify redeem of 1 Z after leveraging", async function() {
+        // redeem the withdrawable portion
+        // TODO: TODO: investigate Lever adding a position for debt (or aDebt)
+        let quantity = ether(1);
+        let redeemable = ether(0.2);
+        await weth.connect(bob.wallet).approve(aaveLender.address, quantity);
+        await ctx.aTokens.aWeth.connect(bob.wallet).approve(ctx.ct.issuanceModule.address, quantity);
+
+        await aaveLender.connect(bob.wallet).deposit(weth.address, quantity, bob.address, 0);
+        await aWethTracker.pushMultiple([bob.address, zToken.address]);
+        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantity, bob.address);
+        await aWethTracker.pushMultiple([bob.address, zToken.address]);
+        await ctx.ct.aaveLeverageModule.lever(
+          zToken.address,
+          dai.address,
+          weth.address,
+          ether(800),
+          ether(0.75),
+          "UNISWAP",
+          "0x"
+        );
+        console.log(await zToken.getPositions());
+        await aWethTracker.pushMultiple([bob.address, zToken.address]);
+
+        // can't transfer debt from redeemer to zToken, hence changed default logic of setprotocol
+        console.log("dai address ", dai.address);
+        await ctx.ct.issuanceModule.connect(bob.wallet).redeem(zToken.address, redeemable, bob.address);
+        // await aWethTracker.pushMultiple([bob.address, zToken.address]);
+        // console.log(aWethTracker.lastSpent(zToken.address));
+        // console.log(aWethTracker.lastEarned(bob.address));
+        // console.log(aWethTracker.totalEarned(zToken.address));
 
       });
 
