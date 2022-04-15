@@ -28,7 +28,7 @@ import { getUniswapFixture, getAaveV2Fixture } from "@setprotocol/set-protocol-v
 import { UniswapV2Router02 } from "@setprotocol/set-protocol-v2/typechain/UniswapV2Router02";
 import { IssuanceModule } from "@typechain/IssuanceModule";
 import { Lev3xIssuanceModule } from "@typechain/Lev3xIssuanceModule";
-import { AaveLeverageModule } from "@typechain/AaveLeverageModule";
+import { Lev3xAaveLeverageModule } from "@typechain/Lev3xAaveLeverageModule";
 import { Lev3xModuleIssuanceHook } from "@typechain/Lev3xModuleIssuanceHook";
 
 
@@ -100,7 +100,7 @@ interface Contracts {
   streamingFee: StreamingFeeModule;
   issuanceModule: Lev3xIssuanceModule;
   lev3xModuleIssuanceHook: Lev3xModuleIssuanceHook;
-  aaveLeverageModule: AaveLeverageModule;
+  aaveLeverageModule: Lev3xAaveLeverageModule;
   integrator: IntegrationRegistry;
 }
 
@@ -182,8 +182,8 @@ class Context {
       await this.ct.aaveLeverageModule.updateAllowedSetToken(deployedSetToken.address, true);
       await this.ct.aaveLeverageModule.initialize(
         deployedSetToken.address,
-        [this.tokens.weth.address, this.tokens.dai.address],
-        [this.tokens.dai.address, this.tokens.weth.address]
+        this.tokens.weth.address,
+        this.tokens.dai.address
       );
 
       // -------------- Hooks -------------
@@ -307,7 +307,7 @@ class Context {
       );
       let aaveV2Lib = await (await ethers.getContractFactory("AaveV2")).deploy();
       this.ct.aaveLeverageModule = await (await ethers.getContractFactory(
-        "AaveLeverageModule",{
+        "Lev3xAaveLeverageModule",{
           libraries: {AaveV2: aaveV2Lib.address} 
         })).deploy(
         this.ct.controller.address,

@@ -35,6 +35,15 @@ import { IProtocolDataProvider } from "@setprotocol/set-protocol-v2/contracts/in
 import { ISetToken } from "@setprotocol/set-protocol-v2/contracts/interfaces/ISetToken.sol";
 import { IVariableDebtToken } from "@setprotocol/set-protocol-v2/contracts/interfaces/external/aave-v2/IVariableDebtToken.sol";
 import { ModuleBase } from "@setprotocol/set-protocol-v2/contracts/protocol/lib/ModuleBase.sol";
+import {console} from "hardhat/console.sol";
+
+
+interface IPriceOracleGetter {
+    function getAssetPrice(address _asset) external view returns (uint256);
+    function getAssetsPrices(address[] calldata _assets) external view returns(uint256[] memory);
+    function getSourceOfAsset(address _asset) external view returns(address);
+    function getFallbackOracle() external view returns(address);
+}
 
 /**
  * @title AaveLeverageModule
@@ -49,8 +58,8 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
     /* ============ Structs ============ */
 
     struct EnabledAssets {        
-        address[] collateralAssets;             // Array of enabled underlying collateral assets for a SetToken
-        address[] borrowAssets;                 // Array of enabled underlying borrow assets for a SetToken
+        address collateralAssets;             // Array of enabled underlying collateral assets for a SetToken
+        address borrowAssets;                 // Array of enabled underlying borrow assets for a SetToken
     }
 
     struct ActionInfo {
@@ -121,7 +130,7 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
     event CollateralAssetsUpdated(
         ISetToken indexed _setToken,
         bool indexed _added,
-        IERC20[] _assets
+        IERC20 _assets
     );
 
     /**
@@ -133,7 +142,7 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
     event BorrowAssetsUpdated(
         ISetToken indexed _setToken,
         bool indexed _added,
-        IERC20[] _assets
+        IERC20 _assets
     );
     
     /**
@@ -435,37 +444,32 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
      * @param _setToken               Instance of the SetToken
      */
     function sync(ISetToken _setToken) public nonReentrant onlyValidAndInitializedSet(_setToken) {
-        // TODO: Adjust for 1 collateral & borrow asset
-        // TODO: unit = collateral-borrow / totalsupply
         uint256 setTotalSupply = _setToken.totalSupply();
+        // TODO: if priceOracle fail to get -> fallback address
+        IPriceOracleGetter priceOracle = IPriceOracleGetter(lendingPoolAddressesProvider.getPriceOracle());
 
         // Only sync positions when Set supply is not 0. Without this check, if sync is called by someone before the 
         // first issuance, then editDefaultPosition would remove the default positions from the SetToken
         if (setTotalSupply > 0) {
-            address[] memory collateralAssets = enabledAssets[_setToken].collateralAssets;
-            for(uint256 i = 0; i < collateralAssets.length; i++) {
-                IAToken aToken = underlyingToReserveTokens[IERC20(collateralAssets[i])].aToken;
+            address collateralAssets = enabledAssets[_setToken].collateralAssets;
+            IAToken aToken = underlyingToReserveTokens[IERC20(collateralAssets)].aToken;
                 
-                uint256 previousPositionUnit = _setToken.getDefaultPositionRealUnit(address(aToken)).toUint256();
-                uint256 newPositionUnit = _getCollateralPosition(_setToken, aToken, setTotalSupply);
+            uint256 previousPositionUnit = _setToken.getDefaultPositionRealUnit(address(aToken)).toUint256();
+            uint256 newCollateralPositionUnit = _getCollateralPosition(_setToken, aToken, setTotalSupply);
+            
+            address borrowAssets = enabledAssets[_setToken].borrowAssets;
+            IERC20 borrowAsset = IERC20(borrowAssets);
+            
+            uint256 newDebtPositionUnit = _getBorrowPosition(_setToken, borrowAsset, setTotalSupply).mul(-1).toUint256();
+            newDebtPositionUnit = newDebtPositionUnit
+               .preciseMul(priceOracle.getAssetPrice(borrowAssets))
+               .preciseDiv(priceOracle.getAssetPrice(collateralAssets));
 
-                // Note: Accounts for if position does not exist on SetToken but is tracked in enabledAssets
-                if (previousPositionUnit != newPositionUnit) {
-                  _updateCollateralPosition(_setToken, aToken, newPositionUnit);
-                }
-            }
-        
-            address[] memory borrowAssets = enabledAssets[_setToken].borrowAssets;
-            for(uint256 i = 0; i < borrowAssets.length; i++) {
-                IERC20 borrowAsset = IERC20(borrowAssets[i]);
+            uint256 newPositionUnit = newCollateralPositionUnit.sub(newDebtPositionUnit);
 
-                int256 previousPositionUnit = _setToken.getExternalPositionRealUnit(address(borrowAsset), address(this));
-                int256 newPositionUnit = _getBorrowPosition(_setToken, borrowAsset, setTotalSupply);
-
-                // Note: Accounts for if position does not exist on SetToken but is tracked in enabledAssets
-                if (newPositionUnit != previousPositionUnit) {
-                    _updateBorrowPosition(_setToken, borrowAsset, newPositionUnit);
-                }
+            // Note: Accounts for if position does not exist on SetToken but is tracked in enabledAssets
+            if (previousPositionUnit != newPositionUnit) {
+              _updateCollateralPosition(_setToken, aToken, newPositionUnit);
             }
         }
     }
@@ -480,8 +484,8 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
      */
     function initialize(
         ISetToken _setToken,
-        IERC20[] memory _collateralAssets,
-        IERC20[] memory _borrowAssets
+        IERC20 _collateralAssets,
+        IERC20 _borrowAssets
     )
         external
         onlySetManager(_setToken, msg.sender)
@@ -519,21 +523,17 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
         // Sync Aave and SetToken positions prior to any removal action
         sync(setToken);
 
-        address[] memory borrowAssets = enabledAssets[setToken].borrowAssets;
-        for(uint256 i = 0; i < borrowAssets.length; i++) {
-            IERC20 borrowAsset = IERC20(borrowAssets[i]);
+        address borrowAssets = enabledAssets[setToken].borrowAssets;
+            IERC20 borrowAsset = IERC20(borrowAssets);
             require(underlyingToReserveTokens[borrowAsset].variableDebtToken.balanceOf(address(setToken)) == 0, "Variable debt remaining");
     
             delete borrowAssetEnabled[setToken][borrowAsset];
-        }
 
-        address[] memory collateralAssets = enabledAssets[setToken].collateralAssets;
-        for(uint256 i = 0; i < collateralAssets.length; i++) {
-            IERC20 collateralAsset = IERC20(collateralAssets[i]);
+        address collateralAssets = enabledAssets[setToken].collateralAssets;
+            IERC20 collateralAsset = IERC20(collateralAssets);
             _updateUseReserveAsCollateral(setToken, collateralAsset, false);
 
             delete collateralAssetEnabled[setToken][collateralAsset];
-        }
         
         delete enabledAssets[setToken];
 
@@ -584,7 +584,7 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
      * @param _setToken             Instance of the SetToken
      * @param _newCollateralAssets  Addresses of new collateral underlying assets
      */
-    function addCollateralAssets(ISetToken _setToken, IERC20[] memory _newCollateralAssets) external onlyManagerAndValidSet(_setToken) {
+    function addCollateralAssets(ISetToken _setToken, IERC20 _newCollateralAssets) external onlyManagerAndValidSet(_setToken) {
         _addCollateralAssets(_setToken, _newCollateralAssets);
     }
    
@@ -593,17 +593,15 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
      * @param _setToken             Instance of the SetToken
      * @param _collateralAssets     Addresses of collateral underlying assets to remove
      */
-    function removeCollateralAssets(ISetToken _setToken, IERC20[] memory _collateralAssets) external onlyManagerAndValidSet(_setToken) {
+    function removeCollateralAssets(ISetToken _setToken, IERC20 _collateralAssets) external onlyManagerAndValidSet(_setToken) {
         
-        for(uint256 i = 0; i < _collateralAssets.length; i++) {
-            IERC20 collateralAsset = _collateralAssets[i];
+            IERC20 collateralAsset = _collateralAssets;
             require(collateralAssetEnabled[_setToken][collateralAsset], "Collateral not enabled");
             
             _updateUseReserveAsCollateral(_setToken, collateralAsset, false);
             
             delete collateralAssetEnabled[_setToken][collateralAsset];
-            enabledAssets[_setToken].collateralAssets.removeStorage(address(collateralAsset));
-        }
+            delete enabledAssets[_setToken].collateralAssets;
         emit CollateralAssetsUpdated(_setToken, false, _collateralAssets);
     }
 
@@ -613,7 +611,7 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
      * @param _setToken             Instance of the SetToken
      * @param _newBorrowAssets      Addresses of borrow underlying assets to add
      */
-    function addBorrowAssets(ISetToken _setToken, IERC20[] memory _newBorrowAssets) external onlyManagerAndValidSet(_setToken) {
+    function addBorrowAssets(ISetToken _setToken, IERC20 _newBorrowAssets) external onlyManagerAndValidSet(_setToken) {
         _addBorrowAssets(_setToken, _newBorrowAssets);
     }
 
@@ -623,17 +621,15 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
      * @param _setToken             Instance of the SetToken
      * @param _borrowAssets         Addresses of borrow underlying assets to remove
      */
-    function removeBorrowAssets(ISetToken _setToken, IERC20[] memory _borrowAssets) external onlyManagerAndValidSet(_setToken) {
+    function removeBorrowAssets(ISetToken _setToken, IERC20 _borrowAssets) external onlyManagerAndValidSet(_setToken) {
         
-        for(uint256 i = 0; i < _borrowAssets.length; i++) {
-            IERC20 borrowAsset = _borrowAssets[i];
+            IERC20 borrowAsset = _borrowAssets;
             
             require(borrowAssetEnabled[_setToken][borrowAsset], "Borrow not enabled");
             require(underlyingToReserveTokens[borrowAsset].variableDebtToken.balanceOf(address(_setToken)) == 0, "Variable debt remaining");
     
             delete borrowAssetEnabled[_setToken][borrowAsset];
-            enabledAssets[_setToken].borrowAssets.removeStorage(address(borrowAsset));
-        }
+            delete enabledAssets[_setToken].borrowAssets;
         emit BorrowAssetsUpdated(_setToken, false, _borrowAssets);
     }
 
@@ -721,7 +717,7 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
      * @return Underlying collateral assets that are enabled
      * @return Underlying borrowed assets that are enabled
      */
-    function getEnabledAssets(ISetToken _setToken) external view returns(address[] memory, address[] memory) {
+    function getEnabledAssets(ISetToken _setToken) external view returns(address , address ) {
         return (
             enabledAssets[_setToken].collateralAssets,
             enabledAssets[_setToken].borrowAssets
@@ -973,16 +969,14 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
      * @dev Add collateral assets to SetToken. Updates the collateralAssetsEnabled and enabledAssets mappings.
      * Emits CollateralAssetsUpdated event.
      */
-    function _addCollateralAssets(ISetToken _setToken, IERC20[] memory _newCollateralAssets) internal {
-        for(uint256 i = 0; i < _newCollateralAssets.length; i++) {
-            IERC20 collateralAsset = _newCollateralAssets[i];
+    function _addCollateralAssets(ISetToken _setToken, IERC20 _newCollateralAssets) internal {
+            IERC20 collateralAsset = _newCollateralAssets;
             
             _validateNewCollateralAsset(_setToken, collateralAsset);
             _updateUseReserveAsCollateral(_setToken, collateralAsset, true);
             
             collateralAssetEnabled[_setToken][collateralAsset] = true;
-            enabledAssets[_setToken].collateralAssets.push(address(collateralAsset));
-        }
+            enabledAssets[_setToken].collateralAssets = (address(collateralAsset));
         emit CollateralAssetsUpdated(_setToken, true, _newCollateralAssets);
     }
 
@@ -990,15 +984,13 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
      * @dev Add borrow assets to SetToken. Updates the borrowAssetsEnabled and enabledAssets mappings.
      * Emits BorrowAssetsUpdated event.
      */
-    function _addBorrowAssets(ISetToken _setToken, IERC20[] memory _newBorrowAssets) internal {
-        for(uint256 i = 0; i < _newBorrowAssets.length; i++) {
-            IERC20 borrowAsset = _newBorrowAssets[i];
+    function _addBorrowAssets(ISetToken _setToken, IERC20 _newBorrowAssets) internal {
+            IERC20 borrowAsset = _newBorrowAssets;
             
             _validateNewBorrowAsset(_setToken, borrowAsset);
             
             borrowAssetEnabled[_setToken][borrowAsset] = true;
-            enabledAssets[_setToken].borrowAssets.push(address(borrowAsset));
-        }
+            enabledAssets[_setToken].borrowAssets = (address(borrowAsset));
         emit BorrowAssetsUpdated(_setToken, true, _newBorrowAssets);
     }
 

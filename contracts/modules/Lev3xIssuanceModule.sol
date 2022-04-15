@@ -412,7 +412,9 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
 
             for (uint256 i = 0; i < components.length; i++) {
                 address component = components[i];
-                // FIXME: in case of redeem: calculate collateral
+                // TODO: TODO: adjust issue and redeem logic according to sync()
+                // TODO: work on formulation considering swap fees with delever
+                // FIXME: work with synced positionRealUnit
 
                 cumulativeEquity = _isIssue? 
                     _setToken.getDefaultPositionRealUnit(component).toUint256(): totalCollateralETH.preciseDiv(_setToken.totalSupply());

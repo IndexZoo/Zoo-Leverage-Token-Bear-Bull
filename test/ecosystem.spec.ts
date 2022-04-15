@@ -22,6 +22,14 @@ chai.use(solidity);
 chai.use(approx);
 
 
+// TODO: Sequence:   how to redeem all <- how to delever properly (account for swap fees)
+
+// Notes: 
+// In order to repay debt check withdrawable > debt`
+//    - then withdraw debt` = amountIn(weth, debtAmount) = collateralAmountToWithdraw 
+///   - else withdraw the allowed withdrawable then pay all withdrawable for part of debt
+
+
 describe("Testing Ecosystem", function () {
   let ctx: Context;
   let bob: Account;
@@ -230,7 +238,7 @@ describe("Testing Ecosystem", function () {
         expect(aWethTracker.totalEarned(zToken.address)).to.be.eq(ether(0));
       });
 
-      it.only("Issue then verify redeem part of it ", async function() {
+      it("Issue then verify redeem part of it without lever ", async function() {
         let quantity = ether(1);
         let redeemQuantity = ether(0.55);
         await weth.connect(bob.wallet).approve(aaveLender.address, quantity);
@@ -278,6 +286,47 @@ describe("Testing Ecosystem", function () {
         expect(aWethTracker.totalEarned(zToken.address)).to.be.eq(ether(0));
 
       });
+
+      it("Sync -- verify sync produces the proper positionUnit", async function() {
+        let quantity = ether(1);
+        let positionUnit = ether(1);
+        await weth.connect(bob.wallet).approve(aaveLender.address, quantity);
+        await ctx.aTokens.aWeth.connect(bob.wallet).approve(ctx.ct.issuanceModule.address, quantity);
+
+        await aaveLender.connect(bob.wallet).deposit(weth.address, quantity, bob.address, 0);
+        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantity, bob.address);
+
+        expect(await zToken.getDefaultPositionRealUnit(ctx.aTokens.aWeth.address)).to.be.eq(positionUnit);
+
+        await ctx.ct.aaveLeverageModule.sync(zToken.address);
+        expect(await zToken.getDefaultPositionRealUnit(ctx.aTokens.aWeth.address)).to.be.eq(positionUnit);
+        await ctx.ct.aaveLeverageModule.lever(
+          zToken.address,
+          dai.address,
+          weth.address,
+          ether(800),
+          ether(0.75),
+          "UNISWAP",
+          "0x"
+        );
+        await ctx.ct.aaveLeverageModule.sync(zToken.address);
+        let assets = await ctx.ct.aaveLeverageModule.getEnabledAssets(zToken.address);
+        expect(await zToken.getDefaultPositionRealUnit(ctx.aTokens.aWeth.address)).to.be.approx(positionUnit);
+
+        // Issuers win  -- price of weth increase
+        let newDaiPrice  = ether(0.001).div(2);
+        await ctx.aaveFixture.setAssetPriceInOracle(dai.address, newDaiPrice);
+        await ctx.ct.aaveLeverageModule.sync(zToken.address);
+        expect(await zToken.getDefaultPositionRealUnit(ctx.aTokens.aWeth.address)).to.be.approx(ether(1.4));
+       
+        // Issuers lose  -- price of weth decrease
+        newDaiPrice  = ether(0.001).mul(2);
+        await ctx.aaveFixture.setAssetPriceInOracle(dai.address, newDaiPrice);
+        await ctx.ct.aaveLeverageModule.sync(zToken.address);
+        expect(await zToken.getDefaultPositionRealUnit(ctx.aTokens.aWeth.address)).to.be.approx(ether(0.2));
+
+      });
+
 
       it.skip("Issue then verify redeem of 1 Z after leveraging", async function() {
         let quantity = ether(1);
