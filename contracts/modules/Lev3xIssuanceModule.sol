@@ -65,6 +65,8 @@ interface IPriceOracleGetter {
 contract Lev3xIssuanceModule is DebtIssuanceModule {
     using Position for uint256;
     using PreciseUnitMath for int256;
+
+    uint256 constant public LTV_MARGIN = 0.05 ether;  // if ltv=80% then with margin 85%
     ILendingPoolAddressesProvider public lendingPoolAddressesProvider;
     ILendingPool public lender;
     
@@ -184,14 +186,12 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
                 uint256[] memory equityUnits,
                 uint256[] memory debtUnits
             ) = _calculateRequiredComponentIssuanceUnitsV2(_setToken, quantityNetFees, false);
-            console.log("--rdeeem--");
-            console.log(equityUnits[0]);
-            console.log(debtUnits[0]);
-            console.log("---------");
 
             uint256 finalSetSupply = initialSetSupply.sub(quantityNetFees);
             // Place burn after pre-redeem hooks because burning tokens may lead to false accounting of synced positions
             _setToken.burn(msg.sender, _quantity);
+
+            // TODO: add function logic here to do delever if needed
 
             _resolveDebtPositions(_setToken, quantityNetFees, false, components, debtUnits, initialSetSupply, finalSetSupply);
             _resolveEquityPositions(_setToken, quantityNetFees, _to, false, components, equityUnits, initialSetSupply, finalSetSupply);
@@ -283,10 +283,6 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
         for (uint256 i = 0; i < _components.length; i++) {
             address component = _components[i];
             uint256 componentQuantity = _componentEquityQuantities[i];
-            console.log("--- resolveEquity-----");
-            console.log(_components.length);
-            console.log(componentQuantity);
-            console.log(component);
             if (componentQuantity > 0) {
                 if (_isIssue) {
                     // Call SafeERC20#safeTransferFrom instead of ExplicitERC20#transferFrom
@@ -425,34 +421,44 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
             returns (address , uint256 , uint256 )
         {
             address[] memory components = _setToken.getComponents();
-
-            // FIXME: This should be 1.8 ether -- zToken.getPostions() showing that
-            uint256 cumulativeEquity = _setToken.getDefaultPositionRealUnit(components[0]).toUint256();   // starts by the base component of setToken
-            uint256 cumulativeDebt;
-            // (
-            //     uint256 totalCollateralETH, 
-            //     uint256 totalDebtETH,
-            // ,,,) = lender.getUserAccountData(address(_setToken)); 
-
-            for (uint256 i = 1; i < components.length; i++) {
-                address component = components[i];
-                // TODO: adjust issue and redeem logic according to sync()
-                // TODO: work on formulation considering swap fees with delever
-
-                (uint256 tEquity, uint256 tDebt) = _accumulateExternalPositions(_setToken, component);
-                cumulativeEquity = cumulativeEquity.add(tEquity);
-                cumulativeDebt = cumulativeDebt.add(tDebt);
-                console.log("--cumulative equity ---");
-                console.log(cumulativeEquity);
-                console.log(cumulativeDebt);
-                // cumulativeEquity = _isIssue? 
-                //     _setToken.getDefaultPositionRealUnit(component).toUint256(): totalCollateralETH.preciseDiv(_setToken.totalSupply());
-
-
-                // TODO: might not need Lev3xModuleIssuanceHook in that case
-                // cumulativeDebt = _isIssue?0:totalDebtETH.preciseDivCeil(_setToken.totalSupply());
+            uint256 setTotalSupply = _setToken.totalSupply();
+            if (setTotalSupply == 0) {
+                return (
+                    components[0], 
+                    _setToken.getDefaultPositionRealUnit(components[0]).toUint256(),
+                    0
+                );
             }
-            cumulativeEquity = cumulativeEquity.sub(cumulativeDebt);
+
+            // NOTE: This should be 1.8 ether -- zToken.getPostions() showing that
+            // uint256 cumulativeEquity = _setToken.getDefaultPositionRealUnit(components[0]).toUint256();   // starts by the base component of setToken
+            uint256 cumulativeEquity ; 
+            uint256 cumulativeDebt;
+            (
+                uint256 totalCollateralETH, 
+                uint256 totalDebtETH,
+            ,,,) = lender.getUserAccountData(address(_setToken)); 
+
+            // for (uint256 i = 1; i < components.length; i++) {
+            //     address component = components[i];
+            //     // TODO: adjust issue and redeem logic according to sync()
+            //     // TODO: work on formulation considering swap fees with delever
+
+            //     (uint256 tEquity, uint256 tDebt) = _accumulateExternalPositions(_setToken, component);
+            //     cumulativeEquity = cumulativeEquity.add(tEquity);
+            //     cumulativeDebt = cumulativeDebt.add(tDebt);
+            //     // cumulativeEquity = _isIssue? 
+            //     //     _setToken.getDefaultPositionRealUnit(component).toUint256(): totalCollateralETH.preciseDiv(_setToken.totalSupply());
+
+
+            //     // TODO: might not need Lev3xModuleIssuanceHook in that case
+            //     // cumulativeDebt = _isIssue?0:totalDebtETH.preciseDivCeil(_setToken.totalSupply());
+            // }
+            // cumulativeEquity = cumulativeEquity.sub(cumulativeDebt);
+            cumulativeEquity = totalCollateralETH.sub(totalDebtETH);
+            cumulativeEquity = _isIssue? 
+                           cumulativeEquity.preciseDivCeil(setTotalSupply):
+                           cumulativeEquity.preciseDiv(setTotalSupply);
             cumulativeDebt = 0;
             return (components[0], cumulativeEquity, cumulativeDebt);
         }
