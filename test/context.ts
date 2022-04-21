@@ -1,3 +1,12 @@
+// ## TODOs ph1
+// ### TODO: Multiple Leverage
+// ### TODO: Convert token to aToken
+// ### TODO: Add other token as basetoken
+// ### TODO: Do bear trade
+// ## TODOs ph2
+// ### TODO: StreamFees
+// ### TODO: Rebalance with price
+
 import "module-alias/register";
 import "./types";
 

@@ -35,6 +35,7 @@ import { IProtocolDataProvider } from "@setprotocol/set-protocol-v2/contracts/in
 import { ISetToken } from "@setprotocol/set-protocol-v2/contracts/interfaces/ISetToken.sol";
 import { IVariableDebtToken } from "@setprotocol/set-protocol-v2/contracts/interfaces/external/aave-v2/IVariableDebtToken.sol";
 import { ModuleBase } from "@setprotocol/set-protocol-v2/contracts/protocol/lib/ModuleBase.sol";
+import { IUniswapV2Router } from "../interfaces/IUniswapV2Router.sol";
 import {console} from "hardhat/console.sol";
 
 
@@ -328,9 +329,10 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
         string memory _tradeAdapterName,
         bytes memory _tradeData
     )
-        external
+        // internal 
+        public 
         nonReentrant
-        onlyManagerAndValidSet(_setToken)
+        // onlyManagerAndValidSet(_setToken)  // TODO: make it callable by Manager ADJUST
     {
         // Note: for delevering, send quantity is derived from collateral asset and receive quantity is derived from 
         // repay asset
@@ -700,13 +702,51 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
     function componentRedeemHook(ISetToken _setToken, uint256 _setTokenQuantity, IERC20 _component, bool _isEquity) external override onlyModule(_setToken) {
         // Check hook not being called for an equity position. If hook is called with equity position and outstanding borrow position
         // exists the loan would be paid down twice, decollateralizing the Set
+        address collateralAsset = enabledAssets[_setToken].collateralAssets;
         if (!_isEquity) {
-            int256 componentDebt = _setToken.getExternalPositionRealUnit(address(_component), address(this));
+            (
+                uint256 totalCollateralETH, 
+                uint256 totalDebtETH,
+            ,,,) = ILendingPool(lendingPoolAddressesProvider.getLendingPool()).getUserAccountData(address(_setToken)); 
+            uint256 ltv = 0.8 ether;   // TODO: replace by custom logic 
+            uint256 withdrawable;
+            uint256 units = (totalCollateralETH.sub(totalDebtETH)).preciseDivCeil(_setToken.totalSupply()).preciseMulCeil(_setTokenQuantity);
+            address repayAsset = _setToken.getComponents()[1];
+            for (uint8 i= 0; i <5; i++) {
+                (
+                    totalCollateralETH, 
+                    totalDebtETH,
+                ,,,) = ILendingPool(lendingPoolAddressesProvider.getLendingPool()).getUserAccountData(address(_setToken));
+                withdrawable = totalCollateralETH.sub(totalDebtETH.preciseDivCeil(ltv));
+                // FIXME: totalCOllateralETH and totalDebt not updated !!
+                if(units <= withdrawable) break;
+                address [] memory path = new address[](2);
+                path[0] = collateralAsset ; path[1] = repayAsset;
+                uint256 minRepayQuantityUnits = IUniswapV2Router(
+                    IExchangeAdapter(getAndValidateAdapter("UNISWAP")).getSpender()
+                ).getAmountsOut(withdrawable, path)[1];  // 
+                // TODO: put the subject of delever (i.e. withdraw, repay, ..etc)
+                delever(
+                        _setToken,
+                        IERC20(collateralAsset),
+                        IERC20(repayAsset),
+                        // withdrawable*5/10,
+                        withdrawable,
+                        // withdrawable*400,   // convert withdrawable to repay asset via uniswap
+                        700 ether,
+                        "UNISWAP",
+                        "" 
+                );
+                // TODO: delever token with withdrawable
+            }
+            // executing _resolveLeverageState
+            // TODO: TODO: do delever if quantity to be redeemed requires withdrawal
+        //     int256 componentDebt = _setToken.getExternalPositionRealUnit(address(_component), address(this));
 
-            require(componentDebt < 0, "Component must be negative");
+        //     require(componentDebt < 0, "Component must be negative");
 
-            uint256 notionalDebt = componentDebt.mul(-1).toUint256().preciseMulCeil(_setTokenQuantity);
-            _repayBorrowForHook(_setToken, _component, notionalDebt);
+        //     uint256 notionalDebt = componentDebt.mul(-1).toUint256().preciseMulCeil(_setTokenQuantity);
+        //     _repayBorrowForHook(_setToken, _component, notionalDebt);
         }
     }
     
@@ -879,6 +919,8 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
      */
     function _updateCollateralPosition(ISetToken _setToken, IAToken _aToken, uint256 _newPositionUnit) internal {
         _setToken.editDefaultPosition(address(_aToken), _newPositionUnit);
+        // To be referenced in issue/redeem by _executeExternalPosition on this main component
+        _setToken.editExternalPosition(address(_aToken), address(this), _newPositionUnit.toInt256(), "");  // 
     } 
 
     /**

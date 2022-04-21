@@ -127,9 +127,11 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
 
             uint256 finalSetSupply = initialSetSupply.add(quantityWithFees);
 
+            // TODO: sync()  -- if needed ?
             _resolveEquityPositions(_setToken, quantityWithFees, _to, true, components, equityUnits, initialSetSupply, finalSetSupply);
             _resolveDebtPositions(_setToken, quantityWithFees, true, components, debtUnits, initialSetSupply, finalSetSupply);
             _resolveFees(_setToken, managerFee, protocolFee);
+            //TODO sync()
         }
         
         _setToken.mint(_to, _quantity);
@@ -188,14 +190,16 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
             ) = _calculateRequiredComponentIssuanceUnitsV2(_setToken, quantityNetFees, false);
 
             uint256 finalSetSupply = initialSetSupply.sub(quantityNetFees);
+
+            _resolveLeverageState(_setToken, quantityNetFees, false, components, equityUnits );
             // Place burn after pre-redeem hooks because burning tokens may lead to false accounting of synced positions
             _setToken.burn(msg.sender, _quantity);
 
-            // TODO: add function logic here to do delever if needed
-
+            // TODO: sync()
             _resolveDebtPositions(_setToken, quantityNetFees, false, components, debtUnits, initialSetSupply, finalSetSupply);
             _resolveEquityPositions(_setToken, quantityNetFees, _to, false, components, equityUnits, initialSetSupply, finalSetSupply);
             _resolveFees(_setToken, managerFee, protocolFee);
+            // TODO sync()
             // TODO: convert redeemed aToken to token
         }
 
@@ -209,58 +213,23 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
         );
     }
 
-
-    /* ============ External View Functions ============ */
+    /* ============ Internal Functions ============ */
 
     /**
-     * Calculates the amount of each component needed to collateralize passed issue quantity plus fees of Sets as well as amount of debt
-     * that will be returned to caller. Default equity alues are calculated based on token balances and not position units in order to more
-     * closely track any accrued tokens that will be synced during issuance. External equity and debt positions will use the stored position
-     * units. IF TOKEN VALUES ARE NOT BEING SYNCED DURING ISSUANCE THIS FUNCTION WILL OVER ESTIMATE THE AMOUNT OF REQUIRED TOKENS.
-     *
-     * @param _setToken         Instance of the SetToken to issue
-     * @param _quantity         Amount of Sets to be issued
-     *
-     * @return address[]        Array of component addresses making up the Set
-     * @return uint256[]        Array of equity notional amounts of each component, respectively, represented as uint256
-     * @return uint256[]        Array of debt notional amounts of each component, respectively, represented as uint256
      */
-    // function getRequiredComponentIssuanceUnitsV2(
-    //     ISetToken _setToken,
-    //     uint256 _quantity
-    // )
-    //     external
-    //     view
-    //     returns (address[] memory, uint256[] memory, uint256[] memory)
-    // {
-    //     (
-    //         uint256 totalQuantity,,
-    //     ) = calculateTotalFees(_setToken, _quantity, true);
-
-    //     if(_setToken.totalSupply() == 0) {
-    //         return _calculateRequiredComponentIssuanceUnits(_setToken, totalQuantity, true);
-    //     } else {
-    //         (
-    //             address[] memory components,
-    //             uint256[] memory equityUnits,
-    //             uint256[] memory debtUnits
-    //         ) = _getTotalIssuanceUnitsFromBalances(_setToken);
-
-    //         uint256 componentsLength = components.length;
-    //         uint256[] memory totalEquityUnits = new uint256[](componentsLength);
-    //         uint256[] memory totalDebtUnits = new uint256[](componentsLength);
-    //         for (uint256 i = 0; i < components.length; i++) {
-    //             // Use preciseMulCeil to round up to ensure overcollateration of equity when small issue quantities are provided
-    //             // and use preciseMul to round debt calculations down to make sure we don't return too much debt to issuer
-    //             totalEquityUnits[i] = equityUnits[i].preciseMulCeil(totalQuantity);
-    //             totalDebtUnits[i] = debtUnits[i].preciseMul(totalQuantity);
-    //         }
-
-    //         return (components, totalEquityUnits, totalDebtUnits);
-    //     }
-    // }
-
-    /* ============ Internal Functions ============ */
+    function _resolveLeverageState (
+        ISetToken _setToken,
+        uint256 _quantity,
+        bool _isIssue,
+        address[] memory _components,
+        uint256[] memory _equityUnits
+    )
+    internal
+    {
+        // address[] memory externalPositionModules = _setToken.getExternalPositionModules(address(_components[0]));
+        // uint256 modulesLength = externalPositionModules.length;
+        _executeExternalPositionHooks(_setToken, _quantity, IERC20(_components[0]), _isIssue, false);
+    }
 
     /**
      * Resolve equity positions associated with SetToken. On issuance, the total equity position for an asset (including default and external
@@ -376,7 +345,6 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
             view
             returns (address[] memory, uint256[] memory, uint256[] memory)
         {
-            // TODO: TODO: Wire it with AaveLeverageModule / execute a delever if not enough withdrawable
             (
                 address _components,
                 uint256 equityUnits,
