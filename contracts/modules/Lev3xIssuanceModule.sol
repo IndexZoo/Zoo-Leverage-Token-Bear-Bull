@@ -31,6 +31,10 @@ import { Position } from "@setprotocol/set-protocol-v2/contracts/protocol/lib/Po
 import { PreciseUnitMath } from "@setprotocol/set-protocol-v2/contracts/lib/PreciseUnitMath.sol";
 import { ILendingPool } from "@setprotocol/set-protocol-v2/contracts/interfaces/external/aave-v2/ILendingPool.sol";
 import { ILendingPoolAddressesProvider } from "@setprotocol/set-protocol-v2/contracts/interfaces/external/aave-v2/ILendingPoolAddressesProvider.sol";
+import { IAToken } from "@setprotocol/set-protocol-v2/contracts/interfaces/external/aave-v2/IAToken.sol";
+import { IExchangeAdapter } from "@setprotocol/set-protocol-v2/contracts/interfaces/IExchangeAdapter.sol";
+import { IUniswapV2Router } from "../interfaces/IUniswapV2Router.sol";
+
 import { console } from "hardhat/console.sol";
 
 
@@ -352,6 +356,7 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
             ) = _getTotalIssuanceUnitsV2(_setToken, _isIssue);
             address[] memory components = new address[](1);
             components[0] = (_components);
+            console.log(equityUnits);
 
             uint256 componentsLength = 1;
             uint256[] memory totalEquityUnits = new uint256[](componentsLength);
@@ -423,11 +428,47 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
             //     // cumulativeDebt = _isIssue?0:totalDebtETH.preciseDivCeil(_setToken.totalSupply());
             // }
             // cumulativeEquity = cumulativeEquity.sub(cumulativeDebt);
-            cumulativeEquity = totalCollateralETH.sub(totalDebtETH);
-            cumulativeEquity = _isIssue? 
-                           cumulativeEquity.preciseDivCeil(setTotalSupply):
-                           cumulativeEquity.preciseDiv(setTotalSupply);
+            // FIXME: TODO: TODO: consider the successive delever loss due to swap
+            uint256 unitCollateralETH = _isIssue? totalCollateralETH.preciseDivCeil(setTotalSupply):
+                                          totalCollateralETH.preciseDiv(setTotalSupply);
+            uint256 unitDebtETH = _isIssue? totalDebtETH.preciseDiv(setTotalSupply):
+                                    totalDebtETH.preciseDivCeil(setTotalSupply);
+            
+            address collateralAsset = IAToken(components[0]).UNDERLYING_ASSET_ADDRESS();
+
+            // swapFactor better be squareRooted
+            uint256 swapFactor = _getSwapAmountOut(
+                    _getSwapAmountOut(
+                        1 ether, 
+                        collateralAsset,
+                        address(components[1] )
+                    ),
+                    address(components[1] ),
+                    collateralAsset
+                );
+
+
+            cumulativeEquity = _isIssue? unitCollateralETH.sub(unitDebtETH): 
+                                    unitCollateralETH.sub(unitDebtETH.preciseDivCeil(swapFactor));
+
+            // cumulativeEquity = totalCollateralETH.sub(totalDebtETH);
+            // cumulativeEquity = _isIssue? 
+            //                cumulativeEquity.preciseDivCeil(setTotalSupply):
+            //                cumulativeEquity.preciseDiv(setTotalSupply);
             cumulativeDebt = 0;
+
+            // if(!_isIssue) {
+            //     cumulativeEquity = _getSwapAmountOut(
+            //         _getSwapAmountOut(
+            //             cumulativeEquity, 
+            //             collateralAsset,
+            //             address(components[1] )
+            //         ),
+            //         address(components[1] ),
+            //         collateralAsset
+            //     );
+            // }
+
             return (components[0], cumulativeEquity, cumulativeDebt);
         }
     
@@ -454,5 +495,23 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
                     }
                 }
     }
-   
+ 
+     /* ========================== Others =========================*/
+    // TODO: Move these funcs to library
+    function _getSwapAmountOut(
+        uint256 _amountIn,
+        address _assetIn,
+        address _assetOut
+    )
+    private
+    view
+    returns (uint256 _amountOut)
+    {
+        address [] memory path = new address[](2);
+        path[0] = _assetIn; 
+        path[1] = _assetOut;
+        _amountOut = IUniswapV2Router(
+            IExchangeAdapter(getAndValidateAdapter("UNISWAP")).getSpender()
+        ).getAmountsOut(_amountIn, path)[1];  // 
+    }  
 }

@@ -136,6 +136,11 @@ class Context {
       this.ct.aaveLeverageModule.address,
       UNISWAP_ADAPTER_NAME,
       this.exchangeAdapter!.address
+    );    
+    await this.ct.integrator.addIntegration(
+      this.ct.issuanceModule.address,
+      UNISWAP_ADAPTER_NAME,
+      this.exchangeAdapter!.address
     );
   }
 

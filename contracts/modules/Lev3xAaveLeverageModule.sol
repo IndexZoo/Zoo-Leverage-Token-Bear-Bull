@@ -707,8 +707,8 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
             (
                 uint256 totalCollateralETH, 
                 uint256 totalDebtETH,
-            ,,,) = ILendingPool(lendingPoolAddressesProvider.getLendingPool()).getUserAccountData(address(_setToken)); 
-            uint256 ltv = 0.8 ether;   // TODO: replace by custom logic 
+            ,,uint256 ltv,) = ILendingPool(lendingPoolAddressesProvider.getLendingPool()).getUserAccountData(address(_setToken)); 
+            ltv = ltv * 1 ether / 10000;    
             uint256 withdrawable;
             uint256 units = (totalCollateralETH.sub(totalDebtETH)).preciseDivCeil(_setToken.totalSupply()).preciseMulCeil(_setTokenQuantity);
             address repayAsset = _setToken.getComponents()[1];
@@ -718,29 +718,25 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
                     totalDebtETH,
                 ,,,) = ILendingPool(lendingPoolAddressesProvider.getLendingPool()).getUserAccountData(address(_setToken));
                 withdrawable = totalCollateralETH.sub(totalDebtETH.preciseDivCeil(ltv));
-                // FIXME: totalCOllateralETH and totalDebt not updated !!
                 if(units <= withdrawable) break;
-                address [] memory path = new address[](2);
-                path[0] = collateralAsset ; path[1] = repayAsset;
-                uint256 minRepayQuantityUnits = IUniswapV2Router(
-                    IExchangeAdapter(getAndValidateAdapter("UNISWAP")).getSpender()
-                ).getAmountsOut(withdrawable, path)[1];  // 
+                uint256 minRepayQuantityUnits = _getSwapAmountOut(
+                    withdrawable, 
+                    collateralAsset,
+                    repayAsset
+                );
+
                 // TODO: put the subject of delever (i.e. withdraw, repay, ..etc)
                 delever(
                         _setToken,
                         IERC20(collateralAsset),
                         IERC20(repayAsset),
-                        // withdrawable*5/10,
                         withdrawable,
-                        // withdrawable*400,   // convert withdrawable to repay asset via uniswap
-                        700 ether,
+                        minRepayQuantityUnits.preciseMul(0.95 ether),   // TODO: replace 0.95 by a param
                         "UNISWAP",
                         "" 
                 );
-                // TODO: delever token with withdrawable
             }
             // executing _resolveLeverageState
-            // TODO: TODO: do delever if quantity to be redeemed requires withdrawal
         //     int256 componentDebt = _setToken.getExternalPositionRealUnit(address(_component), address(this));
 
         //     require(componentDebt < 0, "Component must be negative");
@@ -1170,5 +1166,24 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
     function _getBorrowPosition(ISetToken _setToken, IERC20 _borrowAsset, uint256 _setTotalSupply) internal view returns (int256) {
         uint256 borrowNotionalBalance = underlyingToReserveTokens[_borrowAsset].variableDebtToken.balanceOf(address(_setToken));
         return borrowNotionalBalance.preciseDivCeil(_setTotalSupply).toInt256().mul(-1);
+    }
+
+
+    /* ========================== Others =========================*/
+    // TODO: Move these funcs to library
+    function _getSwapAmountOut(
+        uint256 _amountIn,
+        address _assetIn,
+        address _assetOut
+    )
+    private
+    returns (uint256 _amountOut)
+    {
+        address [] memory path = new address[](2);
+        path[0] = _assetIn; 
+        path[1] = _assetOut;
+        _amountOut = IUniswapV2Router(
+            IExchangeAdapter(getAndValidateAdapter("UNISWAP")).getSpender()
+        ).getAmountsOut(_amountIn, path)[1];  // 
     }
 }
