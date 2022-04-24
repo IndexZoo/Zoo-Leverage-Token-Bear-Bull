@@ -253,15 +253,22 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
     )
         internal
     {
+        if(_isIssue)  _preDepositComponents(
+            _components, 
+            _componentEquityQuantities
+        );
         for (uint256 i = 0; i < _components.length; i++) {
             address component = _components[i];
             uint256 componentQuantity = _componentEquityQuantities[i];
             if (componentQuantity > 0) {
                 if (_isIssue) {
                     // Call SafeERC20#safeTransferFrom instead of ExplicitERC20#transferFrom
+                    // Non-intuitive !! but AToken required this line 
+                    IERC20(IAToken(component)).approve(address(this), componentQuantity);
+
                     SafeERC20.safeTransferFrom(
                         IERC20(component),
-                        msg.sender,
+                        address(this),
                         address(_setToken),
                         componentQuantity
                     );
@@ -281,6 +288,40 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
             }
         }
     }
+
+    function _preDepositComponents(
+        address[] memory _components,
+        uint256[] memory _componentEquityQuantities
+    )
+    internal
+    {
+        for (uint256 i = 0; i < _components.length; i++) {
+            address component = _components[i];
+            uint256 componentQuantity = _componentEquityQuantities[i];
+            if (componentQuantity > 0) {
+                    address underlyingAsset = IAToken(component).UNDERLYING_ASSET_ADDRESS();
+                    // Call SafeERC20#safeTransferFrom instead of ExplicitERC20#transferFrom
+                    SafeERC20.safeTransferFrom(
+                        IERC20(underlyingAsset),
+                        msg.sender,
+                        address(this),
+                        componentQuantity
+                    );
+                    // uint256 aTokenInitBalance = IAToken(component).balanceOf(msg.sender);
+                    uint256 aTokenInitBalance = IAToken(component).balanceOf(address(this));
+                    IERC20(underlyingAsset).approve(address(lender), componentQuantity);
+                    // lender.deposit(underlyingAsset, componentQuantity, msg.sender, 0);
+                    lender.deposit(underlyingAsset, componentQuantity, address(this), 0);
+                    // uint256 aTokenFinalBalance = IAToken(component).balanceOf(msg.sender);
+                    uint256 aTokenFinalBalance = IAToken(component).balanceOf(address(this));
+                    require(
+                        aTokenFinalBalance.sub(aTokenInitBalance) >= componentQuantity, 
+                        "issue: Deposit Failed"
+                    );
+            }
+        }
+    }
+
 
     /**
      * Resolve debt positions associated with SetToken. On issuance, debt positions are entered into by calling the external position hook. The
@@ -356,7 +397,6 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
             ) = _getTotalIssuanceUnitsV2(_setToken, _isIssue);
             address[] memory components = new address[](1);
             components[0] = (_components);
-            console.log(equityUnits);
 
             uint256 componentsLength = 1;
             uint256[] memory totalEquityUnits = new uint256[](componentsLength);
@@ -437,7 +477,7 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
             address collateralAsset = IAToken(components[0]).UNDERLYING_ASSET_ADDRESS();
 
             // swapFactor better be squareRooted
-            uint256 swapFactor = _getSwapAmountOut(
+            uint256 swapFactor = preciseSqrt(_getSwapAmountOut(
                     _getSwapAmountOut(
                         1 ether, 
                         collateralAsset,
@@ -445,7 +485,7 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
                     ),
                     address(components[1] ),
                     collateralAsset
-                );
+                ));
 
 
             cumulativeEquity = _isIssue? unitCollateralETH.sub(unitDebtETH): 
@@ -514,4 +554,23 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
             IExchangeAdapter(getAndValidateAdapter("UNISWAP")).getSpender()
         ).getAmountsOut(_amountIn, path)[1];  // 
     }  
+
+    function preciseSqrt(uint y) internal pure returns (uint z) {
+        z = _sqrt(y).preciseDiv(10**9);
+
+    }
+
+    function _sqrt(uint y) internal pure returns (uint z) {
+        if (y > 3) {
+            z = y;
+            uint x = y / 2 + 1;
+            while (x < z) {
+                z = x;
+                x = (y / x + x) / 2;
+            }
+        } else if (y != 0) {
+            z = 1;
+        }
+    }
+
 }
