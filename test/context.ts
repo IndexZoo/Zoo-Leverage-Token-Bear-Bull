@@ -276,6 +276,7 @@ class Context {
       this.tokens.weth = await new WETH9__factory(this.accounts.owner.wallet).deploy();
 
       await this.tokens.weth.connect(this.accounts.bob.wallet).deposit({value: ether(500)});
+      await this.tokens.weth.connect(this.accounts.alice.wallet).deposit({value: ether(500)});
       await this.tokens.weth.deposit({value: ether(500)});
       await this.tokens.dai.transfer(this.accounts.bob.address, ether(2000));
       

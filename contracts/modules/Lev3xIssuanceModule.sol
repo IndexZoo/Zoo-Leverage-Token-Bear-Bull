@@ -281,12 +281,14 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
 
                     // Call Invoke#invokeTransfer instead of Invoke#strictInvokeTransfer
 
-                    _setToken.invokeTransfer(component, _to, componentQuantity);
+                    // _setToken.invokeTransfer(component, _to, componentQuantity);
+                    _setToken.invokeTransfer(component, address(this), componentQuantity);
 
                     IssuanceValidationUtils.validateCollateralizationPostTransferOut(_setToken, component, _finalSetSupply);
                 }
             }
         }
+        if(!_isIssue) _postRedeemComponents(_components, _componentEquityQuantities, _to);
     }
 
     function _preDepositComponents(
@@ -307,17 +309,38 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
                         address(this),
                         componentQuantity
                     );
-                    // uint256 aTokenInitBalance = IAToken(component).balanceOf(msg.sender);
                     uint256 aTokenInitBalance = IAToken(component).balanceOf(address(this));
                     IERC20(underlyingAsset).approve(address(lender), componentQuantity);
-                    // lender.deposit(underlyingAsset, componentQuantity, msg.sender, 0);
                     lender.deposit(underlyingAsset, componentQuantity, address(this), 0);
-                    // uint256 aTokenFinalBalance = IAToken(component).balanceOf(msg.sender);
                     uint256 aTokenFinalBalance = IAToken(component).balanceOf(address(this));
                     require(
                         aTokenFinalBalance.sub(aTokenInitBalance) >= componentQuantity, 
                         "issue: Deposit Failed"
                     );
+            }
+        }
+    }
+
+    function _postRedeemComponents(
+        address[] memory _components,
+        uint256[] memory _componentEquityQuantities,
+        address _to
+    )
+    internal
+    {
+        for (uint256 i = 0; i < _components.length; i++) {
+            address component = _components[i];
+            uint256 componentQuantity = _componentEquityQuantities[i];
+            if (componentQuantity > 0) {
+                address underlyingAsset = IAToken(component).UNDERLYING_ASSET_ADDRESS();
+                // Call SafeERC20#safeTransferFrom instead of ExplicitERC20#transferFrom
+                uint256 tokenInitBalance = IERC20(underlyingAsset).balanceOf(_to);
+                lender.withdraw(underlyingAsset, componentQuantity, _to);
+                uint256 tokenFinalBalance = IERC20(underlyingAsset).balanceOf(_to);
+                require(
+                    tokenFinalBalance.sub(tokenInitBalance) >= componentQuantity, 
+                    "redeem: Withdraw Failed"
+                );
             }
         }
     }
@@ -477,15 +500,16 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
             address collateralAsset = IAToken(components[0]).UNDERLYING_ASSET_ADDRESS();
 
             // swapFactor better be squareRooted
-            uint256 swapFactor = preciseSqrt(_getSwapAmountOut(
-                    _getSwapAmountOut(
-                        1 ether, 
-                        collateralAsset,
-                        address(components[1] )
-                    ),
-                    address(components[1] ),
-                    collateralAsset
-                ));
+            // uint256 swapFactor = preciseSqrt(_getSwapAmountOut(
+            //         _getSwapAmountOut(
+            //             1 ether, 
+            //             collateralAsset,
+            //             address(components[1] )
+            //         ),
+            //         address(components[1] ),
+            //         collateralAsset
+            //     ));
+            uint256 swapFactor = 0.99 ether;
 
 
             cumulativeEquity = _isIssue? unitCollateralETH.sub(unitDebtETH): 
