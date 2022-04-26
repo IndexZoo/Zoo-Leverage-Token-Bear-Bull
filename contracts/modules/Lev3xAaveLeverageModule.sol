@@ -712,13 +712,18 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
             uint256 withdrawable;
             uint256 units = (totalCollateralETH.sub(totalDebtETH)).preciseDivCeil(_setToken.totalSupply()).preciseMulCeil(_setTokenQuantity);
             address repayAsset = _setToken.getComponents()[1];
-            for (uint8 i= 0; i <5; i++) {
+            console.log("units");
+            console.log(units);
+            for (uint8 i= 0; i <8; i++) {
                 (
                     totalCollateralETH, 
                     totalDebtETH,
                 ,,,) = ILendingPool(lendingPoolAddressesProvider.getLendingPool()).getUserAccountData(address(_setToken));
                 withdrawable = totalCollateralETH.sub(totalDebtETH.preciseDivCeil(ltv));
-                if(units <= withdrawable) break;
+                console.log("collateral"); console.log(totalCollateralETH);
+                console.log("debt"); console.log(totalDebtETH);
+                console.log("withdrawable"); console.log(withdrawable);
+                if(units <= withdrawable || totalDebtETH == 0) break;
                 uint256 minRepayQuantityUnits = _getSwapAmountOut(
                     withdrawable, 
                     collateralAsset,

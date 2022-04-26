@@ -280,8 +280,8 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
                     _executeExternalPositionHooks(_setToken, _quantity, IERC20(component), false, true);
 
                     // Call Invoke#invokeTransfer instead of Invoke#strictInvokeTransfer
+                    // FIXME: TODO: TODO: verify that componentQuantity <= balance(this)
 
-                    // _setToken.invokeTransfer(component, _to, componentQuantity);
                     _setToken.invokeTransfer(component, address(this), componentQuantity);
 
                     IssuanceValidationUtils.validateCollateralizationPostTransferOut(_setToken, component, _finalSetSupply);

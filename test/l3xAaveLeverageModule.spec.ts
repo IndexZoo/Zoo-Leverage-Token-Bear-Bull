@@ -456,6 +456,7 @@ describe("Testing Issuance with Aaveleverage", function () {
         await wethTracker.pushMultiple([bob.address, alice.address]);
         await ctx.ct.issuanceModule.connect(alice.wallet).redeem(zToken.address, redeemableA, alice.address);
         // FIXME: cannot redeem for Bob because "revert reason string 15" , error from aave pool
+        // TODO: work on a better mock swapper (because price is deviating) or (reduce quantity)
         await ctx.ct.issuanceModule.connect(bob.wallet).redeem(zToken.address, redeemableB, bob.address);
         await aWethTracker.push(zToken.address);
         await wethTracker.pushMultiple([bob.address, alice.address]);
