@@ -281,6 +281,7 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
 
                     // Call Invoke#invokeTransfer instead of Invoke#strictInvokeTransfer
                     // FIXME: TODO: TODO: verify that componentQuantity <= balance(this)
+                    // console.log("componentQ"); console.log(componentQuantity);
 
                     _setToken.invokeTransfer(component, address(this), componentQuantity);
 
@@ -475,17 +476,8 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
                 uint256 totalDebtETH,
             ,,,) = lender.getUserAccountData(address(_setToken)); 
 
-            // for (uint256 i = 1; i < components.length; i++) {
-            //     address component = components[i];
             //     // TODO: adjust issue and redeem logic according to sync()
             //     // TODO: work on formulation considering swap fees with delever
-
-            //     (uint256 tEquity, uint256 tDebt) = _accumulateExternalPositions(_setToken, component);
-            //     cumulativeEquity = cumulativeEquity.add(tEquity);
-            //     cumulativeDebt = cumulativeDebt.add(tDebt);
-            //     // cumulativeEquity = _isIssue? 
-            //     //     _setToken.getDefaultPositionRealUnit(component).toUint256(): totalCollateralETH.preciseDiv(_setToken.totalSupply());
-
 
             //     // TODO: might not need Lev3xModuleIssuanceHook in that case
             //     // cumulativeDebt = _isIssue?0:totalDebtETH.preciseDivCeil(_setToken.totalSupply());
@@ -500,39 +492,26 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
             address collateralAsset = IAToken(components[0]).UNDERLYING_ASSET_ADDRESS();
 
             // swapFactor better be squareRooted
-            // uint256 swapFactor = preciseSqrt(_getSwapAmountOut(
-            //         _getSwapAmountOut(
-            //             1 ether, 
-            //             collateralAsset,
-            //             address(components[1] )
-            //         ),
-            //         address(components[1] ),
-            //         collateralAsset
-            //     ));
-            uint256 swapFactor = 0.99 ether;
+            uint256 swapFactor;
+            if(!_isIssue) {
+                swapFactor= preciseSqrt(_getSwapAmountOut(
+                    _getSwapAmountOut(
+                        1 ether, 
+                        collateralAsset,
+                        address(components[1] )
+                    ),
+                    address(components[1] ),
+                    collateralAsset
+                ));
+            }
+            // console.log("swapFactor"); console.log(swapFactor);
+            // uint256 swapFactor = 0.99 ether;
 
 
-            cumulativeEquity = _isIssue? unitCollateralETH.sub(unitDebtETH): 
+            cumulativeEquity = _isIssue || swapFactor == 0? unitCollateralETH.sub(unitDebtETH): 
                                     unitCollateralETH.sub(unitDebtETH.preciseDivCeil(swapFactor));
 
-            // cumulativeEquity = totalCollateralETH.sub(totalDebtETH);
-            // cumulativeEquity = _isIssue? 
-            //                cumulativeEquity.preciseDivCeil(setTotalSupply):
-            //                cumulativeEquity.preciseDiv(setTotalSupply);
             cumulativeDebt = 0;
-
-            // if(!_isIssue) {
-            //     cumulativeEquity = _getSwapAmountOut(
-            //         _getSwapAmountOut(
-            //             cumulativeEquity, 
-            //             collateralAsset,
-            //             address(components[1] )
-            //         ),
-            //         address(components[1] ),
-            //         collateralAsset
-            //     );
-            // }
-
             return (components[0], cumulativeEquity, cumulativeDebt);
         }
     

@@ -710,22 +710,25 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
             ,,uint256 ltv,) = ILendingPool(lendingPoolAddressesProvider.getLendingPool()).getUserAccountData(address(_setToken)); 
             ltv = ltv * 1 ether / 10000;    
             uint256 withdrawable;
+            uint256 repayAmount;
             uint256 units = (totalCollateralETH.sub(totalDebtETH)).preciseDivCeil(_setToken.totalSupply()).preciseMulCeil(_setTokenQuantity);
+            units = units.preciseDivCeil(_setToken.totalSupply());
             address repayAsset = _setToken.getComponents()[1];
-            console.log("units");
-            console.log(units);
-            for (uint8 i= 0; i <8; i++) {
+            for (uint8 i= 0; i <23; i++) {
                 (
                     totalCollateralETH, 
                     totalDebtETH,
-                ,,,) = ILendingPool(lendingPoolAddressesProvider.getLendingPool()).getUserAccountData(address(_setToken));
-                withdrawable = totalCollateralETH.sub(totalDebtETH.preciseDivCeil(ltv));
-                console.log("collateral"); console.log(totalCollateralETH);
-                console.log("debt"); console.log(totalDebtETH);
-                console.log("withdrawable"); console.log(withdrawable);
+                ,,, ) = ILendingPool(lendingPoolAddressesProvider.getLendingPool()).getUserAccountData(address(_setToken));
+                withdrawable = totalCollateralETH.sub(totalDebtETH.preciseDivCeil(ltv)).preciseDiv(_setToken.totalSupply());
+                repayAmount = totalDebtETH.preciseDiv(_setToken.totalSupply()) >= withdrawable? withdrawable:totalDebtETH.preciseDiv(_setToken.totalSupply());
+                // console.log("collateral"); console.log(totalCollateralETH);
+                // console.log("debt"); console.log(totalDebtETH);
+                // console.log("norm debt"); console.log(totalDebtETH.preciseDiv(_setToken.totalSupply()));
+                // console.log("withdrawable"); console.log(withdrawable);
+                // console.log("repayAmount"); console.log(repayAmount);
                 if(units <= withdrawable || totalDebtETH == 0) break;
                 uint256 minRepayQuantityUnits = _getSwapAmountOut(
-                    withdrawable, 
+                    repayAmount, 
                     collateralAsset,
                     repayAsset
                 );
@@ -735,7 +738,7 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
                         _setToken,
                         IERC20(collateralAsset),
                         IERC20(repayAsset),
-                        withdrawable,
+                        repayAmount,
                         minRepayQuantityUnits.preciseMul(0.95 ether),   // TODO: replace 0.95 by a param
                         "UNISWAP",
                         "" 
