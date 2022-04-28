@@ -76,10 +76,12 @@ const initUniswapRouter = async(owner: Account, weth:  Contract, dai:  StandardT
       await  weth.approve(router.address, MAX_UINT_256);
       await dai.approve(router.address, MAX_UINT_256);
       await btc.approve(router.address, MAX_UINT_256);
-      await router.addLiquidity(weth.address, dai.address, ether(40), ether(40000), ether(39), ether(39900), owner.address, MAX_UINT_256);
-      await router.addLiquidity(btc.address, dai.address, bitcoin(40), ether(400000), ether(39), ether(399000), owner.address, MAX_UINT_256);
+      
+      await router.addLiquidity(weth.address, dai.address, ether(45), ether(45000), ether(44.9), ether(44900), owner.address, MAX_UINT_256);
+      await router.addLiquidity(btc.address, dai.address, bitcoin(40), ether(400000), ether(39.9), ether(399000), owner.address, MAX_UINT_256);
       return router;
 }
+
 
 interface Accounts {
   owner: Account;
@@ -125,6 +127,22 @@ class Context {
   public router?: UniswapV2Router02Mock | UniswapV2Router02;
   public aaveFixture: AaveV2Fixture;
   public exchangeAdapter?: UniswapV2ExchangeAdapterV3;
+
+  public async changeUniswapPrice (owner: Account, weth:  Contract, dai:  StandardTokenMock, newPrice: BigNumber, initPrice: BigNumber): Promise<void>  {
+    let k = ether(45).mul(ether(45000));
+    let sqrtK = Math.sqrt(k.div(newPrice).div(ether(1)).toNumber());
+    sqrtK = Math.round(sqrtK*10**4)/10**4;
+    let sqrtKBN: BigNumber = ether(sqrtK);
+    let amount =  ether(45).sub(sqrtKBN).mul(101).div(100);  // *1.01 is a hack (factor)
+    if(newPrice.gt(initPrice)) {
+      // delta_w = w - sqrt(k / newPrice)
+      // let amount = newPrice.sub(initPrice).mul(ether(45).mul(ether(0.96))).div(newPrice.add(initPrice)).div(ether(1));
+      await this.router!.swapTokensForExactTokens(amount, MAX_UINT_256, [dai.address, weth.address], owner.address, MAX_UINT_256) ;
+    } else if(newPrice.lt(initPrice)) {
+      amount = amount.mul(-1);
+      await this.router!.swapExactTokensForTokens(amount, 0, [weth.address, dai.address], owner.address, MAX_UINT_256) ;
+    }
+  }
 
   public async setUniswapIntegration(): Promise<void> {
     await this.ct.integrator.addIntegration(

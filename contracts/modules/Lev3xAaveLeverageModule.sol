@@ -714,13 +714,8 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
             uint256 units = (totalCollateralETH.sub(totalDebtETH)).preciseDivCeil(_setToken.totalSupply()).preciseMulCeil(_setTokenQuantity);
             units = units.preciseDivCeil(_setToken.totalSupply());
             address repayAsset = _setToken.getComponents()[1];
-            for (uint8 i= 0; i <23; i++) {
-                (
-                    totalCollateralETH, 
-                    totalDebtETH,
-                ,,, ) = ILendingPool(lendingPoolAddressesProvider.getLendingPool()).getUserAccountData(address(_setToken));
-                withdrawable = totalCollateralETH.sub(totalDebtETH.preciseDivCeil(ltv)).preciseDiv(_setToken.totalSupply());
-                repayAmount = totalDebtETH.preciseDiv(_setToken.totalSupply()) >= withdrawable? withdrawable:totalDebtETH.preciseDiv(_setToken.totalSupply());
+            for (uint8 i= 0; i <29; i++) {
+                (repayAmount, withdrawable, totalCollateralETH, totalDebtETH) = _calculateRepayAllowances(_setToken);
                 // console.log("collateral"); console.log(totalCollateralETH);
                 // console.log("debt"); console.log(totalDebtETH);
                 // console.log("norm debt"); console.log(totalDebtETH.preciseDiv(_setToken.totalSupply()));
@@ -752,6 +747,36 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
         //     uint256 notionalDebt = componentDebt.mul(-1).toUint256().preciseMulCeil(_setTokenQuantity);
         //     _repayBorrowForHook(_setToken, _component, notionalDebt);
         }
+    }
+
+    function _calculateRepayAllowances(
+        ISetToken _setToken
+    )
+    private
+    view
+    returns (uint256 repayAmount, uint256 withdrawable, uint256 totalCollateralETH, uint256 totalDebtETH) 
+    {
+        uint256 ltv;  
+        (
+            totalCollateralETH, 
+            totalDebtETH,
+            ,, ltv,
+        ) = ILendingPool(lendingPoolAddressesProvider.getLendingPool()).getUserAccountData(address(_setToken));
+        // TODO: TODO: convert totalDebtETH to be amount out of Uniswap
+        if(totalDebtETH == 0)  return (0, totalCollateralETH, totalCollateralETH, 0);
+        ltv = 1 ether * ltv / 10000;
+        withdrawable = totalCollateralETH.sub(totalDebtETH.preciseDivCeil(ltv)).preciseDiv(_setToken.totalSupply());
+        address collateralAsset = _setToken.getComponents()[0];
+        address borrowAsset = _setToken.getComponents()[1];
+        uint256 debtInBorrowAsset = underlyingToReserveTokens[IERC20(borrowAsset)].variableDebtToken.balanceOf(address(_setToken));
+
+        totalDebtETH =  _getSwapAmountIn(
+            debtInBorrowAsset,
+            IAToken(collateralAsset).UNDERLYING_ASSET_ADDRESS(),
+            borrowAsset
+        ); 
+
+        repayAmount = totalDebtETH.preciseDiv(_setToken.totalSupply()) >= withdrawable? withdrawable:totalDebtETH.preciseDivCeil(_setToken.totalSupply());
     }
     
     /* ============ External Getter Functions ============ */
@@ -1185,6 +1210,7 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
         address _assetOut
     )
     private
+    view
     returns (uint256 _amountOut)
     {
         address [] memory path = new address[](2);
@@ -1193,5 +1219,22 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
         _amountOut = IUniswapV2Router(
             IExchangeAdapter(getAndValidateAdapter("UNISWAP")).getSpender()
         ).getAmountsOut(_amountIn, path)[1];  // 
+    }
+
+    function _getSwapAmountIn(
+        uint256 _amountOut,
+        address _assetIn,
+        address _assetOut
+    )
+    private
+    view
+    returns (uint256 _amountIn)
+    {
+        address [] memory path = new address[](2);
+        path[0] = _assetIn; 
+        path[1] = _assetOut;
+        _amountIn = IUniswapV2Router(
+            IExchangeAdapter(getAndValidateAdapter("UNISWAP")).getSpender()
+        ).getAmountsIn(_amountOut, path)[0];  // 
     }
 }
