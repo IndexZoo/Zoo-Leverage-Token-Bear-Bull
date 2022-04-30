@@ -91,6 +91,7 @@ interface Accounts {
   bob: Account;
   alice: Account;
   oscar: Account;
+  seeder: Account;
   others: Account[];
 }
 
@@ -128,19 +129,23 @@ class Context {
   public aaveFixture: AaveV2Fixture;
   public exchangeAdapter?: UniswapV2ExchangeAdapterV3;
 
+  private currentWethUniswapLiquidity: BigNumber;
+
   public async changeUniswapPrice (owner: Account, weth:  Contract, dai:  StandardTokenMock, newPrice: BigNumber, initPrice: BigNumber): Promise<void>  {
     let k = ether(45).mul(ether(45000));
     let sqrtK = Math.sqrt(k.div(newPrice).div(ether(1)).toNumber());
     sqrtK = Math.round(sqrtK*10**4)/10**4;
     let sqrtKBN: BigNumber = ether(sqrtK);
-    let amount =  ether(45).sub(sqrtKBN).mul(101).div(100);  // *1.01 is a hack (factor)
+    let amount =  this.currentWethUniswapLiquidity.sub(sqrtKBN).mul(101).div(100);  // *1.01 is a hack (factor)
     if(newPrice.gt(initPrice)) {
       // delta_w = w - sqrt(k / newPrice)
       // let amount = newPrice.sub(initPrice).mul(ether(45).mul(ether(0.96))).div(newPrice.add(initPrice)).div(ether(1));
       await this.router!.swapTokensForExactTokens(amount, MAX_UINT_256, [dai.address, weth.address], owner.address, MAX_UINT_256) ;
+      this.currentWethUniswapLiquidity = this.currentWethUniswapLiquidity.add(amount);
     } else if(newPrice.lt(initPrice)) {
       amount = amount.mul(-1);
       await this.router!.swapExactTokensForTokens(amount, 0, [weth.address, dai.address], owner.address, MAX_UINT_256) ;
+      this.currentWethUniswapLiquidity =  this.currentWethUniswapLiquidity.sub(amount);
     }
   }
 
@@ -284,6 +289,7 @@ class Context {
       this.accounts.bob,
       this.accounts.alice,
       this.accounts.oscar,
+      this.accounts.seeder,
       ...this.accounts.others
     ] = await getAccounts();
      
@@ -293,14 +299,16 @@ class Context {
       this.tokens.btc = await (await ethers.getContractFactory("StandardTokenMock")).deploy(this.accounts.owner.address, bitcoin(1000000), "MockBtc", "MBTC", 8);
       this.tokens.weth = await new WETH9__factory(this.accounts.owner.wallet).deploy();
 
-      await this.tokens.weth.connect(this.accounts.bob.wallet).deposit({value: ether(500)});
-      await this.tokens.weth.connect(this.accounts.alice.wallet).deposit({value: ether(500)});
+      await this.tokens.weth.connect(this.accounts.bob.wallet).deposit({value: ether(50)});
+      await this.tokens.weth.connect(this.accounts.alice.wallet).deposit({value: ether(50)});
+      await this.tokens.weth.connect(this.accounts.seeder.wallet).deposit({value: ether(50)});
       await this.tokens.weth.deposit({value: ether(500)});
       await this.tokens.dai.transfer(this.accounts.bob.address, ether(2000));
       
       this.router = isMockDex? 
          await initUniswapMockRouter(this.accounts.owner, this.tokens.weth, this.tokens.dai, this.tokens.btc):
          await initUniswapRouter(this.accounts.owner, this.tokens.weth, this.tokens.dai, this.tokens.btc);      
+      this.currentWethUniswapLiquidity = ether(45);
 
       await this.aaveFixture.initialize(this.tokens.weth.address, this.tokens.dai.address);
       await this.tokens.weth.approve(this.aaveFixture.lendingPool.address, MAX_UINT_256);

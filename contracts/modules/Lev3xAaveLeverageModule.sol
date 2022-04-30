@@ -446,34 +446,34 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
      * @param _setToken               Instance of the SetToken
      */
     function sync(ISetToken _setToken) public nonReentrant onlyValidAndInitializedSet(_setToken) {
-        uint256 setTotalSupply = _setToken.totalSupply();
-        // TODO: if priceOracle fail to get -> fallback address
-        IPriceOracleGetter priceOracle = IPriceOracleGetter(lendingPoolAddressesProvider.getPriceOracle());
+        // uint256 setTotalSupply = _setToken.totalSupply();
+        // // TODO: if priceOracle fail to get -> fallback address
+        // IPriceOracleGetter priceOracle = IPriceOracleGetter(lendingPoolAddressesProvider.getPriceOracle());
 
-        // Only sync positions when Set supply is not 0. Without this check, if sync is called by someone before the 
-        // first issuance, then editDefaultPosition would remove the default positions from the SetToken
-        if (setTotalSupply > 0) {
-            address collateralAssets = enabledAssets[_setToken].collateralAssets;
-            IAToken aToken = underlyingToReserveTokens[IERC20(collateralAssets)].aToken;
+        // // Only sync positions when Set supply is not 0. Without this check, if sync is called by someone before the 
+        // // first issuance, then editDefaultPosition would remove the default positions from the SetToken
+        // if (setTotalSupply > 0) {
+        //     address collateralAssets = enabledAssets[_setToken].collateralAssets;
+        //     IAToken aToken = underlyingToReserveTokens[IERC20(collateralAssets)].aToken;
                 
-            uint256 previousPositionUnit = _setToken.getDefaultPositionRealUnit(address(aToken)).toUint256();
-            uint256 newCollateralPositionUnit = _getCollateralPosition(_setToken, aToken, setTotalSupply);
+        //     uint256 previousPositionUnit = _setToken.getDefaultPositionRealUnit(address(aToken)).toUint256();
+        //     uint256 newCollateralPositionUnit = _getCollateralPosition(_setToken, aToken, setTotalSupply);
             
-            address borrowAssets = enabledAssets[_setToken].borrowAssets;
-            IERC20 borrowAsset = IERC20(borrowAssets);
+        //     address borrowAssets = enabledAssets[_setToken].borrowAssets;
+        //     IERC20 borrowAsset = IERC20(borrowAssets);
             
-            uint256 newDebtPositionUnit = _getBorrowPosition(_setToken, borrowAsset, setTotalSupply).mul(-1).toUint256();
-            newDebtPositionUnit = newDebtPositionUnit
-               .preciseMul(priceOracle.getAssetPrice(borrowAssets))
-               .preciseDiv(priceOracle.getAssetPrice(collateralAssets));
+        //     uint256 newDebtPositionUnit = _getBorrowPosition(_setToken, borrowAsset, setTotalSupply).mul(-1).toUint256();
+        //     newDebtPositionUnit = newDebtPositionUnit
+        //        .preciseMul(priceOracle.getAssetPrice(borrowAssets))
+        //        .preciseDiv(priceOracle.getAssetPrice(collateralAssets));
 
-            uint256 newPositionUnit = newCollateralPositionUnit.sub(newDebtPositionUnit);
+        //     uint256 newPositionUnit = newCollateralPositionUnit.sub(newDebtPositionUnit);
 
-            // Note: Accounts for if position does not exist on SetToken but is tracked in enabledAssets
-            if (previousPositionUnit != newPositionUnit) {
-              _updateCollateralPosition(_setToken, aToken, newPositionUnit);
-            }
-        }
+        //     // Note: Accounts for if position does not exist on SetToken but is tracked in enabledAssets
+        //     if (previousPositionUnit != newPositionUnit) {
+        //       _updateCollateralPosition(_setToken, aToken, newPositionUnit);
+        //     }
+        // }
     }
 
     /**
@@ -1187,8 +1187,9 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
      * @return uint256       default collateral position unit          
      */
     function _getCollateralPosition(ISetToken _setToken, IAToken _aToken, uint256 _setTotalSupply) internal view returns (uint256) {
-        uint256 collateralNotionalBalance = _aToken.balanceOf(address(_setToken));
-        return collateralNotionalBalance.preciseDiv(_setTotalSupply);
+        return _setToken.getDefaultPositionRealUnit(address(_aToken)).toUint256();
+        // uint256 collateralNotionalBalance = _aToken.balanceOf(address(_setToken));
+        // return collateralNotionalBalance.preciseDiv(_setTotalSupply);
     }
     
     /**

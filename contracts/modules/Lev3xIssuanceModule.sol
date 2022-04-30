@@ -70,6 +70,7 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
     using Position for uint256;
     using PreciseUnitMath for int256;
 
+    uint256 constant private price0 = 100 ether;
     uint256 constant public LTV_MARGIN = 0.05 ether;  // if ltv=80% then with margin 85%
     ILendingPoolAddressesProvider public lendingPoolAddressesProvider;
     ILendingPool public lender;
@@ -462,13 +463,21 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
         {
             address[] memory components = _setToken.getComponents();
             uint256 setTotalSupply = _setToken.totalSupply();
-            if (setTotalSupply == 0) {
-                return (
-                    components[0], 
-                    _setToken.getDefaultPositionRealUnit(components[0]).toUint256(),
-                    0
-                );
-            }
+
+            // if (setTotalSupply == 0) 
+            // {
+            //     // TODO: find proper factor to multiply by
+            // (
+            //     uint256 totalCollateralETH, 
+            //     uint256 totalDebtETH,
+            // ,,,) = lender.getUserAccountData(address(_setToken)); 
+
+            //     return (
+            //         components[0], 
+            //         _setToken.getDefaultPositionRealUnit(components[0]).toUint256(),
+            //         0
+            //     );
+            // }
 
             // NOTE: This should be 1.8 ether -- zToken.getPostions() showing that
             // uint256 cumulativeEquity = _setToken.getDefaultPositionRealUnit(components[0]).toUint256();   // starts by the base component of setToken
@@ -478,18 +487,22 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
                 uint256 totalCollateralETH, 
                 uint256 totalDebtETH,
             ,,,) = lender.getUserAccountData(address(_setToken)); 
+            // console.log("collateral");
+            // console.log(totalCollateralETH);
+            // console.log(totalDebtETH);
 
-            //     // TODO: adjust issue and redeem logic according to sync()
-            //     // TODO: work on formulation considering swap fees with delever
+            // TODO: TODO: consider the successive delever loss due to swap
+            // uint256 unitCollateralETH = _isIssue? totalCollateralETH.preciseDivCeil(setTotalSupply):
+            //                               totalCollateralETH.preciseDiv(setTotalSupply);
+            // uint256 unitDebtETH = _isIssue? totalDebtETH.preciseDiv(setTotalSupply):
+            //                         totalDebtETH.preciseDivCeil(setTotalSupply);
+            uint256 factor = _calcFactor(totalCollateralETH, totalDebtETH, components);
 
-            //     // TODO: might not need Lev3xModuleIssuanceHook in that case
-            //     // cumulativeDebt = _isIssue?0:totalDebtETH.preciseDivCeil(_setToken.totalSupply());
-            // }
-            // cumulativeEquity = cumulativeEquity.sub(cumulativeDebt);
-            // FIXME: TODO: TODO: consider the successive delever loss due to swap
-            uint256 unitCollateralETH = _isIssue? totalCollateralETH.preciseDivCeil(setTotalSupply):
+                 
+
+            uint256 unitCollateralETH = _isIssue? factor.preciseMulCeil(_setToken.getDefaultPositionRealUnit(components[0]).toUint256()):
                                           totalCollateralETH.preciseDiv(setTotalSupply);
-            uint256 unitDebtETH = _isIssue? totalDebtETH.preciseDiv(setTotalSupply):
+            uint256 unitDebtETH = _isIssue? 0:
                                     totalDebtETH.preciseDivCeil(setTotalSupply);
             
             address collateralAsset = IAToken(components[0]).UNDERLYING_ASSET_ADDRESS();
@@ -497,7 +510,8 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
             // swapFactor better be squareRooted
             uint256 swapFactor;
             if(!_isIssue) {
-                swapFactor= preciseSqrt(_getSwapAmountOut(
+                swapFactor=  components.length==1? 1 ether:
+                 preciseSqrt(_getSwapAmountOut(
                     _getSwapAmountOut(
                         1 ether, 
                         collateralAsset,
@@ -510,13 +524,37 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
             // console.log("swapFactor"); console.log(swapFactor);
             // uint256 swapFactor = 0.99 ether;
 
-
-            cumulativeEquity = _isIssue || swapFactor == 0? unitCollateralETH.sub(unitDebtETH): 
-                                    unitCollateralETH.sub(unitDebtETH.preciseDivCeil(swapFactor));
+             // TODO: might need swapFactor in issue
+            // cumulativeEquity = _isIssue || swapFactor == 0? unitCollateralETH.sub(unitDebtETH): 
+            //                         unitCollateralETH.sub(unitDebtETH.preciseDivCeil(swapFactor));
+            cumulativeEquity =  unitCollateralETH.sub(unitDebtETH);
 
             cumulativeDebt = 0;
             return (components[0], cumulativeEquity, cumulativeDebt);
         }
+
+    function _calcFactor(
+        uint256 totalCollateralETH,
+        uint256 totalDebtETH,
+        address[] memory components
+    )
+    private
+    view
+    returns (uint256 )
+    {
+        IPriceOracleGetter priceOracle = IPriceOracleGetter(lendingPoolAddressesProvider.getPriceOracle());
+        uint256 invPrice;
+        uint256 factor;
+        if(totalDebtETH != 0) {
+            uint256 leverage = totalCollateralETH.preciseDivCeil(totalCollateralETH.sub(totalDebtETH))  ;
+            invPrice = priceOracle.getAssetPrice(components[1]);
+            factor = leverage.preciseMulCeil(PreciseUnitMath.PRECISE_UNIT.sub(price0.preciseMul(invPrice))).add(price0.preciseMulCeil(invPrice));
+        } else {
+            factor = PreciseUnitMath.PRECISE_UNIT;
+        }
+        return factor;
+    }
+
     
     function _accumulateExternalPositions(
         ISetToken _setToken,

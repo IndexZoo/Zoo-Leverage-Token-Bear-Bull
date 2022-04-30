@@ -22,9 +22,11 @@ chai.use(solidity);
 chai.use(approx);
 
 
-        // TODO: TODO: example with price change and multi user / example price loss / some lose|win
+        // TODO: TODO: Revisit tests
+        // TODO: TODO:  some lose|win
         // TODO: TODO: Example with changing lev
         // TODO: TODO: validate price uniswap synced with oracle on redeem and issue
+        // TODO: TODO: accessors for bots
         // TODO:  restructure and clean this test
         // TODO: TODO: work on other tokens other decimals
         // TODO: try the rescale hack
@@ -543,7 +545,7 @@ describe("Testing Issuance with Aaveleverage", function () {
         expect(wethTracker.lastEarned(alice.address)).to.be.approx(ether(0.014*2), 0.01);   
       });
 
-      it.only("Issue then verify redeem of all Z balance after leveraging for Bob only and price fall", async function() {
+      it("Issue then verify redeem of all Z balance after leveraging for Bob only and price fall", async function() {
         let quantities = [ether(0.02), ether(0.01), ether(0.01)];
         let redeemables = [ether(0.02), ether(0.01), ether(0.01)];  //   
         let fee  =  ether(0.0005);  // this is approx swap fee;
@@ -597,6 +599,143 @@ describe("Testing Issuance with Aaveleverage", function () {
         //     => 0.0144*1250 - 0.01*1000 ~ 250 * 3.24 * 0.01
         let expectedReturn = 0.0071; // loss = 0.01 - 0.0071 
         expect(wethTracker.lastEarned(bob.address)).to.be.approx(ether(expectedReturn), 0.09);  // ~ 0.0065241  
+      });
+
+      it.only("Scenario users issue and redeem after and before leveraging with price change ", async function() {
+        // FIXME: working here
+        // issue1 -> leverage -> issue2 -> redeem1 -> redeem2
+        let quantities = [ether(0.02), ether(0.01), ether(0.01)];
+        let redeemables = [ether(0.02), ether(0.01), ether(0.01)];  //   
+        await weth.connect(bob.wallet).approve(ctx.ct.issuanceModule.address, MAX_UINT_256);
+        await weth.connect(alice.wallet).approve(ctx.ct.issuanceModule.address, MAX_UINT_256);
+
+        await aWethTracker.push(zToken.address);
+        await wethTracker.pushMultiple([bob.address, alice.address, owner.address]);
+        
+        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantities[1], bob.address);
+        
+        await aWethTracker.push(zToken.address);
+        await wethTracker.pushMultiple([bob.address, alice.address, owner.address]);
+        let bobIssue = wethTracker.lastSpent(bob.address);
+
+        let leverParams = [
+          {q: ether(800), b: ether(0.75)},
+          {q: ether(620), b: ether(0.6)},
+          {q: ether(500), b: ether(0.45)},
+          {q: ether(320), b: ether(0.3)}
+        ];
+
+        let totalLev = ether(3.24);   // summation of q element + 1 in leverParams
+        
+        for(let param of leverParams) {
+          await ctx.ct.aaveLeverageModule.lever(
+            zToken.address,
+            dai.address,
+            weth.address,
+            param.q,
+            param.b,
+            "UNISWAP",
+            "0x"
+          );
+        } 
+        await ctx.aaveFixture.setAssetPriceInOracle(dai.address, ether(0.0008));  // 1 ETH = 1250 dai
+        await ctx.changeUniswapPrice(owner, weth, dai, ether(1250), ether(1000));
+
+        await aWethTracker.push(zToken.address);
+        await wethTracker.pushMultiple([bob.address, alice.address, owner.address]);
+        
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(zToken.address, quantities[0], alice.address);
+        await ctx.ct.issuanceModule.connect(bob.wallet).redeem(zToken.address, redeemables[1], bob.address);
+
+        await aWethTracker.push(zToken.address);
+        await wethTracker.pushMultiple([bob.address, alice.address, owner.address]);
+        
+        let bobRedeem = wethTracker.lastEarned(bob.address);
+        let aliceIssue = wethTracker.lastSpent(alice.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(zToken.address, redeemables[0], alice.address);
+        
+        await wethTracker.pushMultiple([bob.address, alice.address, owner.address]);
+        await aWethTracker.push(zToken.address);
+        
+        let aliceRedeem = (wethTracker.lastEarned(alice.address));
+        console.log(bobRedeem); // TODO:  TODO: verify calc
+        expect(await zToken.totalSupply()).to.be.eq(ether(0));
+        expect(await zToken.balanceOf(bob.address)).to.be.eq(ether(0));
+        expect(await zToken.balanceOf(alice.address)).to.be.eq(ether(0));
+
+        // // There is a 3% discrepancy because of 3x lev and winning // might do a hack on redeem in code
+        expect(await ctx.aTokens.aWeth.balanceOf(zToken.address)).to.be.lt(ether(0.00005)); //  ~ 0.00000622767
+        // FIXME: Bob taken funds from Alice
+        expect(bobRedeem).to.be.gt(bobIssue.mul(11).div(10));
+        expect(aliceIssue).to.be.approx(aliceRedeem);
+      });
+
+      it("Scenario users issue and redeem after and before leveraging with price change ", async function() {
+        let quantities = [ether(0.02), ether(0.01), ether(0.01)];
+        let redeemables = [ether(0.02), ether(0.01), ether(0.01)];  //   
+        let fee  =  ether(0.0005);  // this is approx swap fee;
+        await weth.connect(bob.wallet).approve(ctx.ct.issuanceModule.address, quantities[1]);
+        await weth.connect(alice.wallet).approve(ctx.ct.issuanceModule.address, quantities[0]);  // ∵ 
+
+        await aWethTracker.push(zToken.address);
+        await wethTracker.pushMultiple([bob.address, alice.address, owner.address]);
+        
+        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantities[1], bob.address);
+        
+        await aWethTracker.push(zToken.address);
+        await wethTracker.pushMultiple([bob.address, alice.address, owner.address]);
+        let bobIssue = wethTracker.lastSpent(bob.address);
+
+        let leverParams = [
+          {q: ether(800), b: ether(0.75)},
+          {q: ether(620), b: ether(0.6)},
+          {q: ether(500), b: ether(0.45)},
+          {q: ether(320), b: ether(0.3)}
+        ];
+
+        let totalLev = ether(3.24);   // summation of q element + 1 in leverParams
+        
+        for(let param of leverParams) {
+          await ctx.ct.aaveLeverageModule.lever(
+            zToken.address,
+            dai.address,
+            weth.address,
+            param.q,
+            param.b,
+            "UNISWAP",
+            "0x"
+          );
+        } 
+        await ctx.aaveFixture.setAssetPriceInOracle(dai.address, ether(0.0008));  // 1 ETH = 1250 dai
+        await ctx.changeUniswapPrice(owner, weth, dai, ether(1250), ether(1000));
+
+        await aWethTracker.push(zToken.address);
+        await wethTracker.pushMultiple([bob.address, alice.address, owner.address]);
+        await ctx.ct.issuanceModule.connect(bob.wallet).redeem(zToken.address, redeemables[1], bob.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(zToken.address, quantities[0], alice.address);
+
+        await aWethTracker.push(zToken.address);
+        await wethTracker.pushMultiple([bob.address, alice.address, owner.address]);
+        
+        let bobRedeem = wethTracker.lastEarned(bob.address);
+        let aliceIssue = wethTracker.lastSpent(alice.address);
+
+        // Alice is receiving the residue of the LevToken because debt=0 hence swapFactor does not kickin
+        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(zToken.address, redeemables[0], alice.address);
+        
+        await wethTracker.pushMultiple([bob.address, alice.address, owner.address]);
+        await aWethTracker.push(zToken.address);
+        
+        let aliceRedeem = (wethTracker.lastEarned(alice.address));
+        let expectedBobProfit =   preciseMul(totalLev, ether(250)).mul(quantities[1]).div(ether(1000));
+        expect(await zToken.totalSupply()).to.be.eq(ether(0));
+        expect(await zToken.balanceOf(bob.address)).to.be.eq(ether(0));
+        expect(await zToken.balanceOf(alice.address)).to.be.eq(ether(0));
+
+        expect(await ctx.aTokens.aWeth.balanceOf(zToken.address)).to.be.eq(ether(0)); //  
+        expect(aliceIssue).to.be.approx(aliceRedeem);
+        // bobRedeem - bobIssue ~ 250*0.01*(3.24-1)/1250
+        expect(bobRedeem.mul(1250).div(1000).sub( bobIssue)).to.be.approx(expectedBobProfit);
       });
 
     });
