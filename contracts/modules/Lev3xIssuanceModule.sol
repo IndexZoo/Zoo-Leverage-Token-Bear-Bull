@@ -45,6 +45,13 @@ interface IPriceOracleGetter {
     function getFallbackOracle() external view returns(address);
 }
 
+interface ILev3xAaveLeverageModule {
+    function getIssuingMultiplier () 
+    external 
+    view 
+    returns (uint256 _multiplier, uint256 _price);
+}
+
 /**
  * @title Lev3xIssuanceModule
  * @author IndexZoo
@@ -496,7 +503,7 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
             //                               totalCollateralETH.preciseDiv(setTotalSupply);
             // uint256 unitDebtETH = _isIssue? totalDebtETH.preciseDiv(setTotalSupply):
             //                         totalDebtETH.preciseDivCeil(setTotalSupply);
-            uint256 factor = _calcFactor(totalCollateralETH, totalDebtETH, components);
+            uint256 factor = _calcFactor(_setToken, totalCollateralETH, totalDebtETH, components);
 
                  
 
@@ -508,19 +515,19 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
             address collateralAsset = IAToken(components[0]).UNDERLYING_ASSET_ADDRESS();
 
             // swapFactor better be squareRooted
-            uint256 swapFactor;
-            if(!_isIssue) {
-                swapFactor=  components.length==1? 1 ether:
-                 preciseSqrt(_getSwapAmountOut(
-                    _getSwapAmountOut(
-                        1 ether, 
-                        collateralAsset,
-                        address(components[1] )
-                    ),
-                    address(components[1] ),
-                    collateralAsset
-                ));
-            }
+            // uint256 swapFactor;
+            // if(!_isIssue) {
+            //     swapFactor=  components.length==1? 1 ether:
+            //      preciseSqrt(_getSwapAmountOut(
+            //         _getSwapAmountOut(
+            //             1 ether, 
+            //             collateralAsset,
+            //             address(components[1] )
+            //         ),
+            //         address(components[1] ),
+            //         collateralAsset
+            //     ));
+            // }
             // console.log("swapFactor"); console.log(swapFactor);
             // uint256 swapFactor = 0.99 ether;
 
@@ -534,25 +541,31 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
         }
 
     function _calcFactor(
+        ISetToken _setToken,
         uint256 totalCollateralETH,
         uint256 totalDebtETH,
-        address[] memory components
+        address[] memory _components
     )
     private
     view
     returns (uint256 )
     {
-        IPriceOracleGetter priceOracle = IPriceOracleGetter(lendingPoolAddressesProvider.getPriceOracle());
-        uint256 invPrice;
-        uint256 factor;
-        if(totalDebtETH != 0) {
-            uint256 leverage = totalCollateralETH.preciseDivCeil(totalCollateralETH.sub(totalDebtETH))  ;
-            invPrice = priceOracle.getAssetPrice(components[1]);
-            factor = leverage.preciseMulCeil(PreciseUnitMath.PRECISE_UNIT.sub(price0.preciseMul(invPrice))).add(price0.preciseMulCeil(invPrice));
-        } else {
-            factor = PreciseUnitMath.PRECISE_UNIT;
-        }
+        ILev3xAaveLeverageModule  levModule =  ILev3xAaveLeverageModule(_setToken.getExternalPositionModules(_components[0])[0]);
+        (
+            uint256 factor,
+        ) = levModule.getIssuingMultiplier();
         return factor;
+        // IPriceOracleGetter priceOracle = IPriceOracleGetter(lendingPoolAddressesProvider.getPriceOracle());
+        // uint256 invPrice;
+        // uint256 factor;
+        // if(totalDebtETH != 0) {
+        //     uint256 leverage = totalCollateralETH.preciseDivCeil(totalCollateralETH.sub(totalDebtETH))  ;
+        //     invPrice = priceOracle.getAssetPrice(components[1]);
+        //     factor = leverage.preciseMulCeil(PreciseUnitMath.PRECISE_UNIT.sub(price0.preciseMul(invPrice))).add(price0.preciseMulCeil(invPrice));
+        // } else {
+        //     factor = PreciseUnitMath.PRECISE_UNIT;
+        // }
+        // return factor;
     }
 
     

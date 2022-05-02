@@ -658,14 +658,14 @@ describe("Testing Issuance with Aaveleverage", function () {
         await aWethTracker.push(zToken.address);
         
         let aliceRedeem = (wethTracker.lastEarned(alice.address));
-        console.log(bobRedeem); // TODO:  TODO: verify calc
         expect(await zToken.totalSupply()).to.be.eq(ether(0));
         expect(await zToken.balanceOf(bob.address)).to.be.eq(ether(0));
         expect(await zToken.balanceOf(alice.address)).to.be.eq(ether(0));
 
         // // There is a 3% discrepancy because of 3x lev and winning // might do a hack on redeem in code
         expect(await ctx.aTokens.aWeth.balanceOf(zToken.address)).to.be.lt(ether(0.00005)); //  ~ 0.00000622767
-        // FIXME: Bob taken funds from Alice
+        // FIXME: Bob taken funds from Alice -- do example by pen & paper then inspect in contract
+        // --- using p0 = 100 seems to be wrong
         expect(bobRedeem).to.be.gt(bobIssue.mul(11).div(10));
         expect(aliceIssue).to.be.approx(aliceRedeem);
       });

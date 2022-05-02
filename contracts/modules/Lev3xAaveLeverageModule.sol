@@ -36,6 +36,7 @@ import { ISetToken } from "@setprotocol/set-protocol-v2/contracts/interfaces/ISe
 import { IVariableDebtToken } from "@setprotocol/set-protocol-v2/contracts/interfaces/external/aave-v2/IVariableDebtToken.sol";
 import { ModuleBase } from "@setprotocol/set-protocol-v2/contracts/protocol/lib/ModuleBase.sol";
 import { IUniswapV2Router } from "../interfaces/IUniswapV2Router.sol";
+import { PreciseUnitMath } from "@setprotocol/set-protocol-v2/contracts/lib/PreciseUnitMath.sol";
 import {console} from "hardhat/console.sol";
 
 
@@ -78,6 +79,15 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
     struct ReserveTokens {
         IAToken aToken;                         // Reserve's aToken instance
         IVariableDebtToken variableDebtToken;   // Reserve's variable debt token instance
+    }
+
+    struct LeveragingStateInfo {
+        ISetToken setToken;                                           // SetToken instance
+        IERC20 collateralAsset;                                       // Address of collateral asset
+        IERC20 borrowAsset;                                           // Address of borrow asset
+        uint256 accumulatedMultiplier;                                // Multiplier accumulated throughout
+        uint256 initPrice;                                            // Price recorded during last lever/delever
+        uint256 initLeverage;                                         // Leverage recorded during last lever/delever 
     }
     
     /* ============ Events ============ */
@@ -215,6 +225,9 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
 
     // Boolean that returns if any SetToken can initialize this module. If false, then subject to allow list. Updateable by governance.
     bool public anySetAllowed;
+
+    // Leveraging state recorded -- for issuing new tokens 
+    LeveragingStateInfo  public leveragingStateInfo;
     
     /* ============ Constructor ============ */
 
@@ -295,6 +308,8 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
         _deposit(leverInfo.setToken, leverInfo.lendingPool, _collateralAsset, postTradeCollateralQuantity);
 
         _updateLeverPositions(leverInfo, _borrowAsset);
+        
+        _updateLeveragingStateInfo();
 
         emit LeverageIncreased(
             _setToken,
@@ -512,6 +527,7 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
         // _collateralAssets and _borrowAssets arrays are validated in their respective internal functions
         _addCollateralAssets(_setToken, _collateralAssets);
         _addBorrowAssets(_setToken, _borrowAssets);
+        _initializeLeveragingStateInfo(_setToken, _collateralAssets, _borrowAssets);
     }
 
     /**
@@ -793,6 +809,30 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
         );
     }
 
+    function getIssuingMultiplier () 
+    public 
+    view 
+    returns (uint256 _multiplier, uint256 _price) 
+    {
+        address collateralAsset = enabledAssets[leveragingStateInfo.setToken].collateralAssets;
+        address borrowAsset = enabledAssets[leveragingStateInfo.setToken].borrowAssets;
+        require(borrowAsset != address(0), "No issuing before assigning borrowAsset");
+        uint256 initLeverage = leveragingStateInfo.initLeverage;
+
+        
+        IPriceOracleGetter priceOracle = IPriceOracleGetter(lendingPoolAddressesProvider.getPriceOracle());
+        _price = priceOracle.getAssetPrice(collateralAsset)
+               .preciseDiv(priceOracle.getAssetPrice(borrowAsset));
+        if(initLeverage == 1 ether) return (1 ether, _price);
+        
+        uint256 factor = initLeverage
+                    .preciseMulCeil(uint256(1 ether).sub(leveragingStateInfo.initPrice.preciseDiv(_price)))
+                    .add(leveragingStateInfo.initPrice.preciseDivCeil(_price));
+
+        _multiplier =  factor.preciseMulCeil(leveragingStateInfo.accumulatedMultiplier);
+    }
+
+
     /* ============ Internal Functions ============ */
     
     /**
@@ -947,7 +987,7 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
      * @dev Updates default position unit for given aToken on SetToken
      */
     function _updateCollateralPosition(ISetToken _setToken, IAToken _aToken, uint256 _newPositionUnit) internal {
-        _setToken.editDefaultPosition(address(_aToken), _newPositionUnit);
+        // _setToken.editDefaultPosition(address(_aToken), _newPositionUnit);
         // To be referenced in issue/redeem by _executeExternalPosition on this main component
         _setToken.editExternalPosition(address(_aToken), address(this), _newPositionUnit.toInt256(), "");  // 
     } 
@@ -1238,4 +1278,55 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
             IExchangeAdapter(getAndValidateAdapter("UNISWAP")).getSpender()
         ).getAmountsIn(_amountOut, path)[0];  // 
     }
+
+    function _initializeLeveragingStateInfo(
+        ISetToken _setToken,
+        IERC20 _collateralAssets,
+        IERC20 _borrowAssets
+    )
+    private
+    {
+        LeveragingStateInfo memory _info;
+        _info.setToken = _setToken;
+        _info.collateralAsset = _collateralAssets;
+        _info.borrowAsset = _borrowAssets;
+        _info.accumulatedMultiplier = 1 ether;
+        _info.initLeverage = 1 ether;
+        leveragingStateInfo = _info;
+
+
+        IAToken aToken = underlyingToReserveTokens[ _collateralAssets].aToken;
+        _updateCollateralPosition(
+            _setToken,
+            aToken,
+            1 ether
+        );
+    }
+
+    function _updateLeveragingStateInfo () private 
+    {
+        // update initPrice, initLeverage & accumulatedMultiplier
+
+        address setToken = address(leveragingStateInfo.setToken);
+        (
+            uint256 multiplier,
+            uint256 price
+        ) = getIssuingMultiplier();
+        // FIXME: working here -- handle multiple leveraging (multiplying accumulation !!) 
+
+
+        (
+            uint256 totalCollateralETH, 
+            uint256 totalDebtETH,
+            ,,,
+        ) = ILendingPool(lendingPoolAddressesProvider.getLendingPool()).getUserAccountData(setToken); 
+
+        uint256 leverage = totalCollateralETH.preciseDiv(totalCollateralETH.sub(totalDebtETH));
+
+        leveragingStateInfo.initLeverage = leverage;
+        leveragingStateInfo.initPrice = price;
+        leveragingStateInfo.accumulatedMultiplier = multiplier;
+
+    }
+
 }
