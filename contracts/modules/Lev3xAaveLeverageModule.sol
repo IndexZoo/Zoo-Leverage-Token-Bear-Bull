@@ -730,6 +730,7 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
             uint256 units = (totalCollateralETH.sub(totalDebtETH)).preciseDivCeil(_setToken.totalSupply()).preciseMulCeil(_setTokenQuantity);
             units = units.preciseDivCeil(_setToken.totalSupply());
             address repayAsset = _setToken.getComponents()[1];
+
             for (uint8 i= 0; i <29; i++) {
                 (repayAmount, withdrawable, totalCollateralETH, totalDebtETH) = _calculateRepayAllowances(_setToken);
                 // console.log("collateral"); console.log(totalCollateralETH);
@@ -753,8 +754,12 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
                         minRepayQuantityUnits.preciseMul(0.95 ether),   // TODO: replace 0.95 by a param
                         "UNISWAP",
                         "" 
-                );
+                );  
+
+
             }
+            // TODO:  rescale units here or move to resolveEquity
+            _rescaleUnits(_setToken, units);
             // executing _resolveLeverageState
         //     int256 componentDebt = _setToken.getExternalPositionRealUnit(address(_component), address(this));
 
@@ -763,6 +768,18 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
         //     uint256 notionalDebt = componentDebt.mul(-1).toUint256().preciseMulCeil(_setTokenQuantity);
         //     _repayBorrowForHook(_setToken, _component, notionalDebt);
         }
+    }
+
+    function _rescaleUnits(
+        ISetToken _setToken,
+        uint256 units
+    )
+    private 
+    view
+    {
+        console.log("units");
+        console.log(units);
+        console.log(IERC20(_setToken.getComponents()[0]).balanceOf(address(_setToken)));
     }
 
     function _calculateRepayAllowances(
@@ -824,11 +841,19 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
         _price = priceOracle.getAssetPrice(collateralAsset)
                .preciseDiv(priceOracle.getAssetPrice(borrowAsset));
         if(initLeverage == 1 ether) return (1 ether, _price);
-        
-        uint256 factor = initLeverage
-                    .preciseMulCeil(uint256(1 ether).sub(leveragingStateInfo.initPrice.preciseDiv(_price)))
-                    .add(leveragingStateInfo.initPrice.preciseDivCeil(_price));
 
+        uint256 factor;
+        uint256 priceDip = leveragingStateInfo.initPrice.preciseDiv(_price) ;
+        // TODO: validate price within valid range
+        if(priceDip <= 1 ether) 
+        {
+            factor = initLeverage
+                        .preciseMulCeil(1 ether - priceDip)
+                        .add(leveragingStateInfo.initPrice.preciseDivCeil(_price));
+        }  else {
+            factor =  leveragingStateInfo.initPrice.preciseDivCeil(_price)
+                        .sub(initLeverage.preciseMulCeil( priceDip - 1 ether));
+        }
         _multiplier =  factor.preciseMulCeil(leveragingStateInfo.accumulatedMultiplier);
     }
 
