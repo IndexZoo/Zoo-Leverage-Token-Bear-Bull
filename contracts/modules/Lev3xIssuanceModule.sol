@@ -295,7 +295,8 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
                     // IAToken(component)
                     // require(componentQuantity <= IERC20(component).balanceOf(address(_setToken)), 
                     // "excess redeem amount at current state");
-                    _setToken.invokeTransfer(component, address(this), componentQuantity);
+                    _componentEquityQuantities[i] = _validateComponentLastTransfer(_setToken, component, componentQuantity);
+                    _setToken.invokeTransfer(component, address(this), _componentEquityQuantities[i]);
 
                     IssuanceValidationUtils.validateCollateralizationPostTransferOut(_setToken, component, _finalSetSupply);
                 }
@@ -332,6 +333,26 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
                     );
             }
         }
+    }
+    /**
+     * Utilizing multiple delevers in one txn might output a miscalculation with getIssuanceUnits
+     * The miscalculation was probed to be about 2.6e-6 from _componentQuantity
+     * i.e. 7033077306495252 > 7033059808425723
+     */
+    function _validateComponentLastTransfer(
+        ISetToken _setToken,
+        address _component,
+        uint256 _componentQuantity
+    )
+    private
+    view
+    returns (uint256 _componentTransferrableQuantity)
+    {
+        uint256 setTokenComponentBalance = IERC20(_component).balanceOf(address(_setToken));
+        require(setTokenComponentBalance.preciseMul(1.01 ether) >= _componentQuantity, "");
+        _componentTransferrableQuantity = setTokenComponentBalance >= _componentQuantity?
+                        _componentQuantity:
+                        setTokenComponentBalance;
     }
 
     function _postRedeemComponents(
@@ -511,24 +532,22 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
 
             uint256 unitCollateralETH = _isIssue? factor.preciseMulCeil(_setToken.getDefaultPositionRealUnit(components[0]).toUint256()):
                                           totalCollateralETH.preciseDiv(setTotalSupply);
+            // getAmountsIn(totalDebtETH*oraclePrice) / setTotalSupply
+            totalDebtETH = _transformDebt(_setToken, components, totalDebtETH);  
             uint256 unitDebtETH = _isIssue? 0:
                                     totalDebtETH.preciseDivCeil(setTotalSupply);
             
-            uint256 swapFactor;
-            if(!_isIssue) {
-                swapFactor = _calcSwapFactor(_setToken);
-            }
-            console.log("swapFactor"); console.log(swapFactor);
+            // uint256 swapFactor;
+            // if(!_isIssue) {
+            //     swapFactor = _calcSwapFactor(_setToken);
+            // }
+            // console.log("swapFactor"); console.log(swapFactor);
             // uint256 swapFactor = 0.99 ether;
 
              // TODO: might need swapFactor in issue
-            cumulativeEquity = _isIssue || swapFactor == 0? unitCollateralETH.sub(unitDebtETH): 
-                                    unitCollateralETH.sub(unitDebtETH.preciseDivCeil(swapFactor));
-            // cumulativeEquity =  unitCollateralETH.sub(unitDebtETH);
-            console.log("getIssuanceUnits");
-            console.log(unitCollateralETH);
-            console.log(unitDebtETH);
-            console.log(cumulativeEquity);
+            // cumulativeEquity = _isIssue || swapFactor == 0? unitCollateralETH.sub(unitDebtETH): 
+            //                         unitCollateralETH.sub(unitDebtETH.preciseDivCeil(swapFactor));
+            cumulativeEquity =  unitCollateralETH.sub(unitDebtETH);
 
             cumulativeDebt = 0;
             return (components[0], cumulativeEquity, cumulativeDebt);
@@ -583,6 +602,21 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
             ));
     }
 
+    function _transformDebt(
+        ISetToken _setToken,
+        address[] memory _components,
+        uint256 _totalDebtETH
+    )
+    private
+    view
+    returns (uint256 _debt)
+    {
+        if(_totalDebtETH == 0) return 0;
+        IPriceOracleGetter priceOracle = IPriceOracleGetter(lendingPoolAddressesProvider.getPriceOracle());
+        uint256 absDebt = _totalDebtETH.preciseDivCeil(priceOracle.getAssetPrice(_components[1]));
+        _debt = _getSwapAmountIn(absDebt, IAToken(_components[0]).UNDERLYING_ASSET_ADDRESS(), _components[1]);
+    }
+
     
     function _accumulateExternalPositions(
         ISetToken _setToken,
@@ -625,6 +659,23 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
         _amountOut = IUniswapV2Router(
             IExchangeAdapter(getAndValidateAdapter("UNISWAP")).getSpender()
         ).getAmountsOut(_amountIn, path)[1];  // 
+    }  
+
+    function _getSwapAmountIn (
+        uint256 _amountOut,
+        address _assetIn,
+        address _assetOut
+    )
+    private
+    view
+    returns (uint256 _amountIn)
+    {
+        address [] memory path = new address[](2);
+        path[0] = _assetIn; 
+        path[1] = _assetOut;
+        _amountIn = IUniswapV2Router(
+            IExchangeAdapter(getAndValidateAdapter("UNISWAP")).getSpender()
+        ).getAmountsIn(_amountOut, path)[0];  // 
     }  
 
     function preciseSqrt(uint y) internal pure returns (uint z) {

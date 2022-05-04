@@ -727,12 +727,13 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
             ltv = ltv * 1 ether / 10000;    
             uint256 withdrawable;
             uint256 repayAmount;
-            uint256 units = (totalCollateralETH.sub(totalDebtETH)).preciseDivCeil(_setToken.totalSupply()).preciseMulCeil(_setTokenQuantity);
-            units = units.preciseDivCeil(_setToken.totalSupply());
             address repayAsset = _setToken.getComponents()[1];
+            uint256 units;
 
             for (uint8 i= 0; i <29; i++) {
-                (repayAmount, withdrawable, totalCollateralETH, totalDebtETH) = _calculateRepayAllowances(_setToken);
+                // units = (totalCollateralETH.sub(totalDebtETH)).preciseDivCeil(_setToken.totalSupply()).preciseMulCeil(_setTokenQuantity);
+                // units = units.preciseDivCeil(_setToken.totalSupply());   // FIXME: recheck
+                (units, repayAmount, withdrawable, totalCollateralETH, totalDebtETH) = _calculateRepayAllowances(_setToken, _setTokenQuantity);
                 // console.log("collateral"); console.log(totalCollateralETH);
                 // console.log("debt"); console.log(totalDebtETH);
                 // console.log("norm debt"); console.log(totalDebtETH.preciseDiv(_setToken.totalSupply()));
@@ -759,7 +760,7 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
 
             }
             // TODO:  rescale units here or move to resolveEquity
-            _rescaleUnits(_setToken, units);
+            // _rescaleUnits(_setToken, units);
             // executing _resolveLeverageState
         //     int256 componentDebt = _setToken.getExternalPositionRealUnit(address(_component), address(this));
 
@@ -783,11 +784,12 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
     }
 
     function _calculateRepayAllowances(
-        ISetToken _setToken
+        ISetToken _setToken,
+        uint256 _setTokenQuantity
     )
     private
     view
-    returns (uint256 repayAmount, uint256 withdrawable, uint256 totalCollateralETH, uint256 totalDebtETH) 
+    returns (uint256 units, uint256 repayAmount, uint256 withdrawable, uint256 totalCollateralETH, uint256 totalDebtETH) 
     {
         uint256 ltv;  
         (
@@ -795,8 +797,12 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
             totalDebtETH,
             ,, ltv,
         ) = ILendingPool(lendingPoolAddressesProvider.getLendingPool()).getUserAccountData(address(_setToken));
+
+        // updating units because the deviation between dex & oracle prices might cause increase for (c - d) which is anamolous
+        units = (totalCollateralETH.sub(totalDebtETH)).preciseDivCeil(_setToken.totalSupply()).preciseMulCeil(_setTokenQuantity);
+        units = units.preciseDivCeil(_setToken.totalSupply());   // FIXME: recheck
         // TODO: TODO: convert totalDebtETH to be amount out of Uniswap
-        if(totalDebtETH == 0)  return (0, totalCollateralETH, totalCollateralETH, 0);
+        if(totalDebtETH == 0)  return (units, 0, totalCollateralETH, totalCollateralETH, 0);
         ltv = 1 ether * ltv / 10000;
         withdrawable = totalCollateralETH.sub(totalDebtETH.preciseDivCeil(ltv)).preciseDiv(_setToken.totalSupply());
         address collateralAsset = _setToken.getComponents()[0];
