@@ -1,5 +1,5 @@
 /*
-    Copyright 2020 Set Labs Inc.
+    Copyright 2022 IndexTech Ltd.
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
@@ -20,18 +20,21 @@ pragma solidity 0.6.10;
 pragma experimental ABIEncoderV2;
 
 import { SafeMath } from "@openzeppelin/contracts/math/SafeMath.sol";
+import { PreciseUnitMath } from "@setprotocol/set-protocol-v2/contracts/lib/PreciseUnitMath.sol";
 import { SignedSafeMath } from "@openzeppelin/contracts/math/SignedSafeMath.sol";
 import { ISetToken } from "@setprotocol/set-protocol-v2/contracts/interfaces/ISetToken.sol";
-import { IUniswapV2Router } from "@setprotocol/set-protocol-v2/contracts/interfaces/external/IUniswapV2Router.sol";
+import { IUniswapV2Router } from "../interfaces/IUniswapV2Router.sol";
 import { IExchangeAdapterV3} from "../interfaces/IExchangeAdapterV3.sol";
 import { Position } from "@setprotocol/set-protocol-v2/contracts/protocol/lib/Position.sol";
 import { Address } from "@openzeppelin/contracts/utils/Address.sol";
-
-import {console} from "hardhat/console.sol";
+import { ILev3xAaveLeverageModule } from "../interfaces/ILev3xAaveLeverageModule.sol";
+import { IPriceOracleGetter } from "../interfaces/IPriceOracleGetter.sol";
+import { ILendingPoolAddressesProvider } from "@setprotocol/set-protocol-v2/contracts/interfaces/external/aave-v2/ILendingPoolAddressesProvider.sol";
+import { IAToken } from "@setprotocol/set-protocol-v2/contracts/interfaces/external/aave-v2/IAToken.sol";
 
 /**
  * @title IndexUtils 
- * @author IndexTech Ltd. 
+ * @author IndexZoo 
  *
  *
  */
@@ -40,6 +43,85 @@ library IndexUtils {
     using SignedSafeMath for int256;
     using Position for ISetToken;
     using Address for address;
+    using PreciseUnitMath for uint256;
+
+    /* =========== SetToken ========== */
+
+    function calculateIssuingFactor(
+        ISetToken _setToken
+    )
+    external 
+    view
+    returns (uint256 )
+    {
+        address component = _setToken.getComponents()[0];
+        address[] memory externalModules = _setToken.getExternalPositionModules(component);
+        ILev3xAaveLeverageModule  levModule =  ILev3xAaveLeverageModule(externalModules[0]);
+        (
+            uint256 factor,
+        ) = levModule.getIssuingMultiplier();
+        return factor;
+    }
+
+    function calculateDebtWithSwapFees(
+        ISetToken _setToken,
+        ILendingPoolAddressesProvider _lendingPoolAddressesProvider,
+        IUniswapV2Router _router,
+        uint256 _totalDebtETH
+    )
+    external 
+    view
+    returns (uint256 _debt)
+    {
+        address[] memory components = _setToken.getComponents();
+        if(_totalDebtETH == 0) return 0;
+        require(components.length >= 2, "Redemption not yet allowed");
+        IPriceOracleGetter priceOracle = IPriceOracleGetter(_lendingPoolAddressesProvider.getPriceOracle());
+        uint256 absDebt = _totalDebtETH.preciseDivCeil(priceOracle.getAssetPrice(components[1]));
+        _debt = getSwapAmountIn(
+            _router,
+            absDebt, 
+            IAToken(components[0]).UNDERLYING_ASSET_ADDRESS(), 
+            components[1]
+        );
+    }
+
+
+    /* =========== Uniswap Router ========== */
+
+    function getSwapAmountOut(
+        IUniswapV2Router _router,
+        uint256 _amountIn,
+        address _assetIn,
+        address _assetOut
+    )
+    public 
+    view
+    returns (uint256 _amountOut)
+    {
+        address [] memory path = new address[](2);
+        path[0] = _assetIn; 
+        path[1] = _assetOut;
+        _amountOut = _router.getAmountsOut(_amountIn, path)[1];  // 
+    } 
+
+    function getSwapAmountIn (
+        IUniswapV2Router _router,
+        uint256 _amountOut,
+        address _assetIn,
+        address _assetOut
+    )
+    public 
+    view
+    returns (uint256 _amountIn)
+    {
+        address [] memory path = new address[](2);
+        path[0] = _assetIn; 
+        path[1] = _assetOut;
+        _amountIn = _router.getAmountsIn(_amountOut, path)[0];  // 
+    }
+
+
 
     function invokeSwapExact(
         ISetToken _setToken,
@@ -111,6 +193,9 @@ library IndexUtils {
         // _setToken.invoke(address(configs[_setToken].router), 0, callData);
     }
 
+
+    /*============= ERC20 ==============*/
+
     function getUnitOf(
         address _token
     )
@@ -131,5 +216,25 @@ library IndexUtils {
         bytes memory callData = abi.encodeWithSignature("decimals()");
         bytes memory data = _token.functionStaticCall(callData);
         return abi.decode(data, (uint8));
+    }
+
+    /*============= Maths ==============*/
+
+    function preciseSqrt(uint y) external pure returns (uint z) {
+        z = sqrt(y).preciseDiv(10**9);
+
+    }
+
+    function sqrt(uint y) public pure returns (uint z) {
+        if (y > 3) {
+            z = y;
+            uint x = y / 2 + 1;
+            while (x < z) {
+                z = x;
+                x = (y / x + x) / 2;
+            }
+        } else if (y != 0) {
+            z = 1;
+        }
     }
 }

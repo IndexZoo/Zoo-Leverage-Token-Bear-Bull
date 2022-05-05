@@ -418,12 +418,12 @@ describe("Testing Issuance with Aaveleverage", function () {
         expect(wethTracker.lastEarned(alice.address)).to.be.approx(quantities[0], 0.08);   
       });
     });
-    describe.only("Issue and redeem with price change ", async function(){
+    describe("Issue and redeem with price change ", async function(){
       it("Issue then verify redeem of all Z balance after leveraging for Bob and price rise", async function() {
         let quantities = [ether(0.02), ether(0.01), ether(0.01)];
         let redeemables = [ether(0.02), ether(0.01), ether(0.01)];  //   
         let fee  =  ether(0.0005);  // this is approx swap fee;
-        await weth.connect(bob.wallet).approve(ctx.ct.issuanceModule.address, quantities[1]);
+        await weth.connect(bob.wallet).approve(ctx.ct.issuanceModule.address, quantities[1].mul(4));
 
         await aWethTracker.push(zToken.address);
         await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantities[1], bob.address);
@@ -449,6 +449,7 @@ describe("Testing Issuance with Aaveleverage", function () {
             "0x"
           );
         } 
+
 
         await aWethTracker.push(zToken.address);
         await ctx.aaveFixture.setAssetPriceInOracle(dai.address, ether(0.0008));  // 1 ETH = 1250 dai

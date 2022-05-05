@@ -339,7 +339,12 @@ class Context {
       this.ct.streamingFee = await (await ethers.getContractFactory("StreamingFeeModule")).deploy(
         this.ct.controller.address
       );
-      this.ct.issuanceModule  = await (await ethers.getContractFactory("Lev3xIssuanceModule")).deploy(
+      let indexUtilsLib = await (await ethers.getContractFactory("IndexUtils")).deploy();
+      this.ct.issuanceModule  = await (await ethers.getContractFactory(
+        "Lev3xIssuanceModule", {
+          libraries: {IndexUtils: indexUtilsLib.address}
+        }
+        )).deploy(
         this.ct.controller.address,
         this.aaveFixture.lendingPoolAddressesProvider.address
       );

@@ -1,5 +1,5 @@
 /*
-    Copyright 2021 Set Labs Inc.
+    Copyright 2022 IndexTech Ltd.
 
     Licensed under the Apache License, Version 2.0 (the "License");
     you may not use this file except in compliance with the License.
@@ -49,7 +49,7 @@ interface IPriceOracleGetter {
 
 /**
  * @title AaveLeverageModule
- * @author Set Protocol 
+ * @author IndexZoo 
  * @notice Smart contract that enables leverage trading using Aave as the lending protocol. 
  * @dev Do not use this module in conjunction with other debt modules that allow Aave debt positions as it could lead to double counting of
  * debt when borrowed assets are the same.
