@@ -15,21 +15,22 @@ import { BalanceTracker } from "./BalanceTracker";
 
 import {initUniswapRouter} from "./context";
 import { WETH9 } from "@typechain/WETH9";
-import { BigNumber, Wallet } from "ethers";
+import { BigNumber, ContractTransaction, Wallet } from "ethers";
 import { UniswapV2Router02 } from "@setprotocol/set-protocol-v2/typechain/UniswapV2Router02";
 import { SetToken } from "@typechain/SetToken";
 chai.use(solidity);
 chai.use(approx);
 
-        // TODO: TODO: Revisit tests
-        // FIXME: TODO: delever in redeem should update issuingFactor
-        // TODO: TODO: Tidy and create libraries / revise logic / delete other contracts / merge to main
-        // TODO: TODO: work on other tokens other decimals
+        // TODO: Sequence:   how to redeem all <- how to delever properly (account for swap fees)
+        // FIXME: ecosystem last test
+        // TODO: TODO: test that updating issuingFactor work properly after delever 
+        // TODO: TODO: Tidy and create libraries / revise logic / delete other contracts  
+        // TODO: work on other tokens other decimals
         // TODO: some tests for lose|win
         // TODO: Example test with changing lev
         // TODO: validate price uniswap synced with oracle on redeem and issue
-        // TODO: accessors for bots
         // TODO: bear tokens
+        // TODO: tests for essential events emitted
         
         // TODO: time advance for checking borrow fees
         // TODO: streamfees
@@ -53,10 +54,11 @@ describe("Testing Issuance with Aaveleverage", function () {
       let zToken: SetToken;
       let aWethTracker: BalanceTracker;
       let wethTracker: BalanceTracker;
+      let UNISWAP_INTEGRATION = "UNISWAP";
 
       beforeEach("", async function(){
         ctx = new Context();
-        await ctx.initialize(false);  // TODO: use real uniswap
+        await ctx.initialize(false);  // 
         bob = ctx.accounts.bob;
         owner = ctx.accounts.owner;
         alice = ctx.accounts.alice;
@@ -97,7 +99,7 @@ describe("Testing Issuance with Aaveleverage", function () {
           weth.address,
           ether(800),
           ether(0.75),
-          "UNISWAP",
+          UNISWAP_INTEGRATION,
           "0x"
         );
         await ctx.ct.aaveLeverageModule.sync(zToken.address);
@@ -137,7 +139,7 @@ describe("Testing Issuance with Aaveleverage", function () {
           weth.address,
           ether(800),
           ether(0.75),
-          "UNISWAP",
+          UNISWAP_INTEGRATION,
           "0x"
         );
         await aWethTracker.push(zToken.address);
@@ -171,7 +173,7 @@ describe("Testing Issuance with Aaveleverage", function () {
           weth.address,
           ether(800),
           ether(0.75),
-          "UNISWAP",
+          UNISWAP_INTEGRATION,
           "0x"
         );
         await aWethTracker.push(zToken.address);
@@ -208,7 +210,7 @@ describe("Testing Issuance with Aaveleverage", function () {
           weth.address,
           ether(800),
           ether(0.75),
-          "UNISWAP",
+          UNISWAP_INTEGRATION,
           "0x"
         );
         await aWethTracker.push(zToken.address);
@@ -246,7 +248,7 @@ describe("Testing Issuance with Aaveleverage", function () {
           weth.address,
           ether(800),
           ether(0.75),
-          "UNISWAP",
+          UNISWAP_INTEGRATION,
           "0x"
         );
         await ctx.ct.aaveLeverageModule.lever(
@@ -255,7 +257,7 @@ describe("Testing Issuance with Aaveleverage", function () {
           weth.address,
           ether(620),
           ether(0.6),
-          "UNISWAP",
+          UNISWAP_INTEGRATION,
           "0x"
         );
         await aWethTracker.push(zToken.address);
@@ -289,7 +291,7 @@ describe("Testing Issuance with Aaveleverage", function () {
           weth.address,
           ether(800),
           ether(0.75),
-          "UNISWAP",
+          UNISWAP_INTEGRATION,
           "0x"
         );
         await aWethTracker.push(zToken.address);
@@ -330,7 +332,7 @@ describe("Testing Issuance with Aaveleverage", function () {
           weth.address,
           ether(800),
           ether(0.75),
-          "UNISWAP",
+          UNISWAP_INTEGRATION,
           "0x"
         );
 
@@ -386,7 +388,7 @@ describe("Testing Issuance with Aaveleverage", function () {
             weth.address,
             param.q,
             param.b,
-            "UNISWAP",
+            UNISWAP_INTEGRATION,
             "0x"
           );
         } 
@@ -445,7 +447,7 @@ describe("Testing Issuance with Aaveleverage", function () {
             weth.address,
             param.q,
             param.b,
-            "UNISWAP",
+            UNISWAP_INTEGRATION,
             "0x"
           );
         } 
@@ -507,7 +509,7 @@ describe("Testing Issuance with Aaveleverage", function () {
             weth.address,
             param.q,
             param.b,
-            "UNISWAP",
+            UNISWAP_INTEGRATION,
             "0x"
           );
         } 
@@ -569,7 +571,7 @@ describe("Testing Issuance with Aaveleverage", function () {
             weth.address,
             param.q,
             param.b,
-            "UNISWAP",
+            UNISWAP_INTEGRATION,
             "0x"
           );
         } 
@@ -631,7 +633,7 @@ describe("Testing Issuance with Aaveleverage", function () {
             weth.address,
             param.q,
             param.b,
-            "UNISWAP",
+            UNISWAP_INTEGRATION,
             "0x"
           );
         } 
@@ -701,7 +703,7 @@ describe("Testing Issuance with Aaveleverage", function () {
             weth.address,
             param.q,
             param.b,
-            "UNISWAP",
+            UNISWAP_INTEGRATION,
             "0x"
           );
         } 
@@ -737,6 +739,111 @@ describe("Testing Issuance with Aaveleverage", function () {
         expect(bobRedeem.mul(1250).div(1000).sub( bobIssue)).to.be.approx(expectedBobProfit);
       });
 
+    });
+
+    describe.only("Bots testing -- accessor lever/delever", async function(){
+      let revertString = "Must be the authorized caller";
+      let subjectLeverMethod: (caller?: Account, x?: BigNumber) => Promise<ContractTransaction>;
+      let subjectDeleverMethod: (caller?: Account, x?: BigNumber) => Promise<ContractTransaction>;
+      let bot: Account;
+      let quantity: BigNumber;
+      beforeEach ("", async function(){
+        quantity = ether(0.02);
+        bot = ctx.accounts.others[0];
+        subjectLeverMethod = async (
+            caller: Account|undefined = owner,
+            x: BigNumber|undefined = ether(800)
+          ) =>
+          await ctx.ct.aaveLeverageModule.connect(caller.wallet).autoLever(
+            zToken.address,
+            dai.address,
+            weth.address,
+            x,
+            ether(0),
+            UNISWAP_INTEGRATION,
+            "0x"
+          );
+
+        subjectDeleverMethod = async (
+            caller: Account|undefined = owner,
+            x: BigNumber|undefined = ether(0.5)
+          ) =>
+          await ctx.ct.aaveLeverageModule.connect(caller.wallet).autoDelever(
+            zToken.address,
+            weth.address,
+            dai.address,
+            x,
+            ether(0),
+            UNISWAP_INTEGRATION,
+            "0x"
+          );
+
+        await weth.connect(alice.wallet).approve(ctx.ct.issuanceModule.address, MAX_UINT_256);  // ∵ 
+
+        await aWethTracker.push(zToken.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(zToken.address, quantity, alice.address);
+        await aWethTracker.push(zToken.address);
+      });
+      it("Verify non authorized caller cannot access autoLever() even if manager", async function() {
+        await expect(subjectDeleverMethod()).to.be.revertedWith(revertString);
+        await expect(subjectDeleverMethod(bot)).to.be.revertedWith(revertString);
+      });
+      it("Verify non authorized caller cannot access autoDelever() call even if manager", async function() {
+        await expect(subjectLeverMethod()).to.be.revertedWith(revertString);
+        await expect(subjectLeverMethod(bot)).to.be.revertedWith(revertString);
+      });
+
+      it("Verify authorized bot calls autoLever() ", async function() {
+        let expectedBorrowAmount = preciseMul(ether(0.8), (quantity));
+        await ctx.ct.aaveLeverageModule.updateAnyBotAllowed(zToken.address, true);
+        await ctx.ct.aaveLeverageModule.setCallerPermission(zToken.address, bot.address, true);
+
+        await aWethTracker.push(zToken.address);
+        await subjectLeverMethod(bot);
+        await aWethTracker.push(zToken.address);
+
+        expect(aWethTracker.lastEarned(zToken.address)).to.be.approx(expectedBorrowAmount);
+      });
+
+      it("Verify authorized bot calls autoDelever() ", async function() {
+        let expectedRepayAmount = preciseMul(ether(0.5), (quantity));
+        await ctx.ct.aaveLeverageModule.updateAnyBotAllowed(zToken.address, true);
+        await ctx.ct.aaveLeverageModule.setCallerPermission(zToken.address, bot.address, true);
+
+        await subjectLeverMethod(bot);
+        await aWethTracker.push(zToken.address);
+        await subjectDeleverMethod(bot);
+        await aWethTracker.push(zToken.address);
+
+        expect(aWethTracker.lastSpent(zToken.address)).to.be.approx(expectedRepayAmount);
+      });
+
+      it("Verify authorized bot reverts when calling autoLever(); bots not allowed ", async function() {
+        await ctx.ct.aaveLeverageModule.setCallerPermission(zToken.address, bot.address, true);
+        await expect(subjectLeverMethod(bot)).to.be.revertedWith(revertString);
+
+      });
+      it("Verify authorized bot reverts when calling autoDelever(); bots not allowed ", async function() {
+        await ctx.ct.aaveLeverageModule.setCallerPermission(zToken.address, bot.address, true);
+        await expect(subjectDeleverMethod(bot)).to.be.revertedWith(revertString);
+      });
+
+      it("Verify unauthorized bot reverts when calling autoLever(); bot not allowed ", async function() {
+        await ctx.ct.aaveLeverageModule.updateAnyBotAllowed(zToken.address, true);
+        await ctx.ct.aaveLeverageModule.setCallerPermission(zToken.address, bot.address, true);
+        await expect(subjectLeverMethod(owner)).to.be.revertedWith(revertString);
+
+      });
+
+      it("Verify unauthorized bot reverts when calling autoDelever(); bot not allowed ", async function() {
+        await ctx.ct.aaveLeverageModule.updateAnyBotAllowed(zToken.address, true);
+        await ctx.ct.aaveLeverageModule.setCallerPermission(zToken.address, bot.address, true);
+        await expect(subjectDeleverMethod(bob)).to.be.revertedWith(revertString);
+
+      });
+     // Test lever/delever when not anyBot allowed and one bot allowed but caller not allowed
+      // 
+      // FIXME: work here
     });
  
 });

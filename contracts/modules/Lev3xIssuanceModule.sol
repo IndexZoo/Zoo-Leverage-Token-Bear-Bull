@@ -39,20 +39,6 @@ import { IndexUtils } from "../lib/IndexUtils.sol";
 import { console } from "hardhat/console.sol";
 
 
-interface IPriceOracleGetter {
-    function getAssetPrice(address _asset) external view returns (uint256);
-    function getAssetsPrices(address[] calldata _assets) external view returns(uint256[] memory);
-    function getSourceOfAsset(address _asset) external view returns(address);
-    function getFallbackOracle() external view returns(address);
-}
-
-interface ILev3xAaveLeverageModule {
-    function getIssuingMultiplier () 
-    external 
-    view 
-    returns (uint256 _multiplier, uint256 _price);
-}
-
 /**
  * @title Lev3xIssuanceModule
  * @author IndexZoo

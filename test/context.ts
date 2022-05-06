@@ -354,7 +354,10 @@ class Context {
       let aaveV2Lib = await (await ethers.getContractFactory("AaveV2")).deploy();
       this.ct.aaveLeverageModule = await (await ethers.getContractFactory(
         "Lev3xAaveLeverageModule",{
-          libraries: {AaveV2: aaveV2Lib.address} 
+          libraries: {
+            AaveV2: aaveV2Lib.address,
+            IndexUtils: indexUtilsLib.address
+          } 
         })).deploy(
         this.ct.controller.address,
         this.aaveFixture.lendingPoolAddressesProvider.address 

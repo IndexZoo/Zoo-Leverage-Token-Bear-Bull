@@ -29,7 +29,10 @@ import { Position } from "@setprotocol/set-protocol-v2/contracts/protocol/lib/Po
 import { Address } from "@openzeppelin/contracts/utils/Address.sol";
 import { ILev3xAaveLeverageModule } from "../interfaces/ILev3xAaveLeverageModule.sol";
 import { IPriceOracleGetter } from "../interfaces/IPriceOracleGetter.sol";
+import { IProtocolDataProvider } from "@setprotocol/set-protocol-v2/contracts/interfaces/external/aave-v2/IProtocolDataProvider.sol";
+import { ILendingPool } from "@setprotocol/set-protocol-v2/contracts/interfaces/external/aave-v2/ILendingPool.sol";
 import { ILendingPoolAddressesProvider } from "@setprotocol/set-protocol-v2/contracts/interfaces/external/aave-v2/ILendingPoolAddressesProvider.sol";
+import { IVariableDebtToken } from "@setprotocol/set-protocol-v2/contracts/interfaces/external/aave-v2/IVariableDebtToken.sol";
 import { IAToken } from "@setprotocol/set-protocol-v2/contracts/interfaces/external/aave-v2/IAToken.sol";
 
 /**
@@ -85,6 +88,71 @@ library IndexUtils {
             components[1]
         );
     }
+
+    /**
+     * TODO: Document this
+     */
+
+    function calculateRepayAllowances(
+        ISetToken _setToken,
+        ILendingPoolAddressesProvider _lendingPoolAddressesProvider,
+        IUniswapV2Router _router,
+        uint256 _setTokenQuantity
+    )
+    external 
+    view
+    returns (uint256 units, uint256 repayAmount, uint256 withdrawable, uint256 totalDebtETH) 
+    {
+        uint256 totalCollateralETH;
+        address collateralAsset = _setToken.getComponents()[0];
+        address borrowAsset = _setToken.getComponents()[1];
+        uint256 ltv; 
+
+        (
+            totalCollateralETH, 
+            totalDebtETH,
+            ,, ltv,
+        ) = ILendingPool(_lendingPoolAddressesProvider.getLendingPool()).getUserAccountData(address(_setToken));
+
+        // updating units because the deviation between dex & oracle prices might cause increase for (c - d) which is anamolous
+        units = (totalCollateralETH.sub(totalDebtETH)).preciseDivCeil(_setToken.totalSupply()).preciseMulCeil(_setTokenQuantity);
+        units = units.preciseDivCeil(_setToken.totalSupply());   // FIXME: recheck
+        // TODO: TODO: convert totalDebtETH to be amount out of Uniswap
+        if(totalDebtETH == 0)  return (units, 0, totalCollateralETH, 0);
+
+        uint256 debtInBorrowAsset = getDebtAmount(_lendingPoolAddressesProvider, address(_setToken), borrowAsset); 
+        ltv = 1 ether * ltv / 10000;
+        withdrawable = totalCollateralETH.sub(totalDebtETH.preciseDivCeil(ltv)).preciseDiv(_setToken.totalSupply());
+
+
+        totalDebtETH =  getSwapAmountIn(
+            _router,
+            debtInBorrowAsset,
+            IAToken(collateralAsset).UNDERLYING_ASSET_ADDRESS(),
+            borrowAsset
+        ); 
+
+        repayAmount = totalDebtETH.preciseDiv(_setToken.totalSupply()) >= withdrawable? withdrawable:totalDebtETH.preciseDivCeil(_setToken.totalSupply());
+    }
+
+    /* ========== Lending Protocol ========= */
+    function getDebtAmount(
+        ILendingPoolAddressesProvider _lendingPoolAddressesProvider,
+        address _holder,
+        address _asset
+    )
+    public
+    view
+    returns (uint256 _amount)
+    {
+        IProtocolDataProvider protocolDataProvider = IProtocolDataProvider(
+        // Use the raw input vs bytes32() conversion. This is to ensure the input is an uint and not a string.
+            _lendingPoolAddressesProvider.getAddress(0x0100000000000000000000000000000000000000000000000000000000000000)
+        );
+        (, , address variableDebtToken) = protocolDataProvider.getReserveTokensAddresses(_asset);
+        _amount = IVariableDebtToken(variableDebtToken).balanceOf(_holder);       
+    }
+ 
 
 
     /* =========== Uniswap Router ========== */

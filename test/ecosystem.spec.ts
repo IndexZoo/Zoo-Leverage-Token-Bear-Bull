@@ -21,7 +21,6 @@ import { SetToken } from "@typechain/SetToken";
 chai.use(solidity);
 chai.use(approx);
 
-// TODO: Sequence:   how to redeem all <- how to delever properly (account for swap fees)
 
 // Notes: 
 // In order to repay debt check withdrawable > debt`
