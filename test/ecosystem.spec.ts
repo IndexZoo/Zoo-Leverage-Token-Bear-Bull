@@ -6,14 +6,14 @@ import {AaveV2LendingPool} from "@setprotocol/set-protocol-v2/typechain/AaveV2Le
 
 import {ether, approx, preciseMul} from "../utils/helpers";
 
-import "./types";
-import { Context } from "./context";
+import "../utils/test/types";
+import { Context } from "../utils/test/context";
 import { Account } from "@utils/types";
 import { ADDRESS_ZERO, MAX_INT_256, MAX_UINT_256 } from "../utils/constants";
 import { StandardTokenMock } from "@typechain/StandardTokenMock";
-import { BalanceTracker } from "./BalanceTracker";
+import { BalanceTracker } from "../utils/test/BalanceTracker";
 
-import {initUniswapRouter} from "./context";
+import {initUniswapRouter} from "../utils/test/context";
 import { WETH9 } from "@typechain/WETH9";
 import { BigNumber, Wallet } from "ethers";
 import { UniswapV2Router02 } from "@setprotocol/set-protocol-v2/typechain/UniswapV2Router02";
@@ -38,7 +38,7 @@ describe("Testing Ecosystem", function () {
   let daiTracker: BalanceTracker;
     beforeEach("", async () => {
       ctx = new Context();
-      await ctx.initialize(false);  // TODO: use real uniswap
+      await ctx.initialize(false);  // 
       bob = ctx.accounts.bob;
       owner = ctx.accounts.owner;
       alice = ctx.accounts.alice;
@@ -54,16 +54,11 @@ describe("Testing Ecosystem", function () {
       it("Get Components", async function () {
         let sToken = ctx.sets[0];
         let assets = await sToken.getComponents();
-        expect(assets[0]).to.be.eq(ctx.tokens.weth.address);
-        expect(assets[1]).to.be.eq(ctx.tokens.btc.address);
+        expect(assets[0]).to.be.eq(ctx.aTokens.aWeth.address);
+        expect(assets.length).to.be.equal(1);
       });
     });
    
-    it("router -- xx ", async function () {
-      let configs = await ctx.subjectModule!.configs(ctx.sets[0].address);
-      expect(configs.router).to.be.eq(ctx.router!.address) ;
-      expect(configs.quote).to.be.eq(ctx.tokens.dai.address) ;
-    });
 
     describe("Uniswap", async function() {
       it("real router", async function() {
@@ -160,7 +155,7 @@ describe("Testing Ecosystem", function () {
         
         // Alice's process 
         await dai.connect(alice.wallet).approve(router.address, MAX_UINT_256);
-        await weth.connect(alice.wallet).deposit({value: ether(0.1)});
+        await weth.connect(alice.wallet).transfer (owner.address, (await weth.balanceOf(alice.address)).sub(ether(0.1)));
         // Deposit - Borrow - swap
         await depositBorrowSwap(alice, ether(0.72));  // borrow ~ 0.072
         await depositBorrowSwap(alice, ether(0.75));  // borrow ~ 0.054 -> total ~ 0.126

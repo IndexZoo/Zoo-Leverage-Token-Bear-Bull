@@ -1,6 +1,4 @@
 // ## TODOs ph1
-// ### TODO: Multiple Leverage
-// ### TODO: Convert token to aToken
 // ### TODO: Add other token as basetoken
 // ### TODO: Do bear trade
 // ## TODOs ph2
@@ -11,25 +9,24 @@ import "module-alias/register";
 import "./types";
 
 import { Account } from "@utils/types";
-import {  ADDRESS_ZERO, MAX_UINT_256, ZERO } from "../utils/constants";
+import {  ADDRESS_ZERO, MAX_UINT_256, ZERO } from "../constants";
 
 import { ethers } from "hardhat";
-import { bitcoin, ether } from "../utils/common/unitsUtils";
+import { bitcoin, ether } from "../common/unitsUtils";
 
 import {BigNumber, Contract} from "ethers";
 import {AaveV2Fixture} from "@setprotocol/set-protocol-v2/dist/utils/fixtures";
 import {AaveV2AToken} from "@setprotocol/set-protocol-v2/dist/utils/contracts/aaveV2";
-import {StandardTokenMock} from "../typechain-types/StandardTokenMock";
-import { UniswapV2Router02Mock } from "../typechain-types/UniswapV2Router02Mock";
-import { Controller } from "../typechain-types/Controller";
+import {StandardTokenMock} from "../../typechain-types/StandardTokenMock";
+import { UniswapV2Router02Mock } from "../../typechain-types/UniswapV2Router02Mock";
+import { Controller } from "../../typechain-types/Controller";
 
-import { SetToken } from "../typechain-types/SetToken";
-import { SetTokenCreator } from "../typechain-types/SetTokenCreator";
-import { StreamingFeeModule } from "../typechain-types/StreamingFeeModule";
-import { getAccounts } from "../utils/common/accountUtils";
-import { WETH9__factory } from "../typechain-types/factories/WETH9__factory";
-import { CompositeSetIssuanceModule } from "../typechain-types/CompositeSetIssuanceModule";
-import { abi as SetTokenABI } from "../artifacts/@setprotocol/set-protocol-v2/contracts/protocol/SetToken.sol/SetToken.json";
+import { SetToken } from "../../typechain-types/SetToken";
+import { SetTokenCreator } from "../../typechain-types/SetTokenCreator";
+import { StreamingFeeModule } from "../../typechain-types/StreamingFeeModule";
+import { getAccounts } from "../common/accountUtils";
+import { WETH9__factory } from "../../typechain-types/factories/WETH9__factory";
+import { abi as SetTokenABI } from "../../artifacts/@setprotocol/set-protocol-v2/contracts/protocol/SetToken.sol/SetToken.json";
 import { IntegrationRegistry } from "@typechain/IntegrationRegistry";
 import { UniswapV2ExchangeAdapterV3 } from "@typechain/UniswapV2ExchangeAdapterV3";
 // @ts-ignore
@@ -123,7 +120,6 @@ class Context {
   public aTokens = <ATokens>{};
   public ct = <Contracts> {};
   public sets: SetToken[] = [];
-  public subjectModule?: CompositeSetIssuanceModule;
 
   public router?: UniswapV2Router02Mock | UniswapV2Router02;
   public aaveFixture: AaveV2Fixture;
@@ -150,11 +146,7 @@ class Context {
   }
 
   public async setUniswapIntegration(): Promise<void> {
-    await this.ct.integrator.addIntegration(
-      this.subjectModule!.address,
-      UNISWAP_ADAPTER_NAME,
-      this.exchangeAdapter!.address
-    );
+
     await this.ct.integrator.addIntegration(
       this.ct.aaveLeverageModule.address,
       UNISWAP_ADAPTER_NAME,
@@ -166,6 +158,7 @@ class Context {
       this.exchangeAdapter!.address
     );
   }
+
 
   public async setIssuanceModuleIntegration(): Promise<void> {
     await this.ct.integrator.addIntegration(
@@ -229,55 +222,7 @@ class Context {
 
   }
 
- /**
-   * @dev creates SetToken via a contract factory
-   */
-  public async createSetToken(): Promise<void> {
-      const tx =  await this.ct.creator.create(
-        [this.tokens.weth.address, this.tokens.btc.address ],
-        [ether(0.1), ether(0.01) ],
-        [
-          this.subjectModule!.address, 
-          this.ct.streamingFee.address
-        ], 
-        this.accounts.owner.address, 
-        "Compo", 
-        "BULL"
-      );
-      const receipt = await tx.wait();
-      const event = receipt.events?.find(p => p.event == "SetTokenCreated");
-      const tokensetAddress = event? event.args? event.args[0]:"":"";
 
-      let deployedSetToken =  await ethers.getContractAt(SetTokenABI, tokensetAddress) as SetToken;
-      this.sets.push(deployedSetToken );
-
-
-      await this.subjectModule!.initialize(deployedSetToken.address, this.tokens.dai.address,  this.router!.address);
-      await this.ct.streamingFee.initialize(
-        deployedSetToken.address, {
-         feeRecipient: this.accounts.protocolFeeRecipient.address,
-         maxStreamingFeePercentage: ether(0.05),
-         streamingFeePercentage: ether(0.01),
-         lastStreamingFeeTimestamp: 0
-      });
-
-      // addToController
-      let component = (await deployedSetToken.getComponents())[0];
-      let externalModule  =   (await deployedSetToken.getExternalPositionModules(component ))[0];
-      await this.ct.controller.addModule(externalModule);
-      
-      // add integration
-      await this.ct.integrator.addIntegration(
-        externalModule, 
-        UNISWAP_ADAPTER_NAME, 
-        this.exchangeAdapter!.address
-      );
-
-      // initializeHook
-      await deployedSetToken.addModule(externalModule);
-      await this.subjectModule!.initializeHook(deployedSetToken.address);
-
-  }
 
 
     public async initialize(isMockDex: boolean = true) : Promise<void>  {
@@ -333,9 +278,7 @@ class Context {
       this.ct.creator =  await (await ethers.getContractFactory("SetTokenCreator")).deploy(
         this.ct.controller.address
       );
-      this.subjectModule = await (await ethers.getContractFactory("CompositeSetIssuanceModule")).deploy(
-        this.ct.controller.address
-      );
+
       this.ct.streamingFee = await (await ethers.getContractFactory("StreamingFeeModule")).deploy(
         this.ct.controller.address
       );
@@ -368,7 +311,6 @@ class Context {
       await this.ct.controller.initialize(
         [this.ct.creator.address],
         [
-          this.subjectModule.address,
           this.ct.streamingFee.address,
           this.ct.aaveLeverageModule.address,
           this.ct.issuanceModule.address,
@@ -381,9 +323,9 @@ class Context {
       this.exchangeAdapter = await (await ethers.getContractFactory("UniswapV2ExchangeAdapterV3")).deploy(
         this.router!.address 
       );
+
       await this.setUniswapIntegration();
       await this.setIssuanceModuleIntegration();
-      await this.createSetToken();
       await this.createZToken();
   }
 }
