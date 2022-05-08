@@ -16,8 +16,6 @@ import { BalanceTracker } from "../utils/test/BalanceTracker";
 
 import {initUniswapRouter} from "../utils/test/context";
 import { WETH9 } from "@typechain/WETH9";
-import { BigNumber, ContractTransaction, Wallet } from "ethers";
-import { UniswapV2Router02 } from "@setprotocol/set-protocol-v2/typechain/UniswapV2Router02";
 import { SetToken } from "@typechain/SetToken";
 chai.use(solidity);
 chai.use(approx);
@@ -340,9 +338,9 @@ describe("Testing Issuance with Aaveleverage", function () {
         expect(aWethTracker.lastSpent(zToken.address)).to.be.approx(ether(0.018*3));
 
         // There is a 2% discrepancy
-        expect(aWethTracker.totalEarned(zToken.address)).to.be.lt(ether(0.00065)); //  ~ 0.00060655 
-        expect(wethTracker.lastEarned(bob.address)).to.be.approx(quantityB, 0.03);  // ~ 0.0097498   
-        expect(wethTracker.lastEarned(alice.address)).to.be.approx(quantityA, 0.03);   
+        expect(aWethTracker.totalEarned(zToken.address)).to.be.lt(ether(0.00001)); //  ~ 0.00060655 
+        expect(wethTracker.lastEarned(bob.address)).to.be.approx(quantityB);  // ~ 0.0097498   
+        expect(wethTracker.lastEarned(alice.address)).to.be.approx(quantityA);   
       });
       it("Issue then verify redeem of all Z balance after leveraging", async function() {
         let quantities = [ether(0.02), ether(0.01), ether(0.01)];
@@ -401,9 +399,184 @@ describe("Testing Issuance with Aaveleverage", function () {
 
         // // There is a 2.5% discrepancy because of 3x lev // might do a hack on redeem in code
         // hack: give 0.7% redeem bonus for 1x lev -> redeem = redeem * (1  + 0.007 * leverage)
-        expect(aWethTracker.totalEarned(zToken.address)).to.be.lt(ether(0.00105)); //  ~ 0.001017206 
-        expect(wethTracker.lastEarned(bob.address)).to.be.approx(quantities[1], 0.05);  // ~ 0.009509   
-        expect(wethTracker.lastEarned(alice.address)).to.be.approx(quantities[0], 0.08);   
+        expect(aWethTracker.totalEarned(zToken.address)).to.be.lt(ether(0.00001)); //  ~ 0.00000
+        expect(wethTracker.lastEarned(bob.address)).to.be.approx(quantities[1]);  // ~ 0.00986557466   
+        expect(wethTracker.lastEarned(alice.address)).to.be.approx(quantities[0] );  // ~ 0.01973123 
+      });
+    });
+
+    describe("Verify validity of IssuingFactor ", async function () {
+      it("Verify issuing factor is around & gt one after delever to lev1x and price rise", async function (){
+        // issueA -> lever -> delever -> price ^ -> issueA
+        let quantity1 = ether(0.02);
+        let quantity2 = ether(0.005);
+        await weth.connect(alice.wallet).approve(ctx.ct.issuanceModule.address, MAX_UINT_256);  // ∵ 
+
+        await aWethTracker.push(zToken.address);
+        await wethTracker.push(alice.address);
+        
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(zToken.address, quantity1, alice.address);
+        
+        await aWethTracker.push(zToken.address);
+        await wethTracker.push(alice.address);
+
+        let params = [
+          {q: ether(800), b: ether(0.75)},
+          {q: ether(785), b: ether(0.795)},
+        ];
+
+          await ctx.ct.aaveLeverageModule.lever(
+            zToken.address,
+            dai.address,
+            weth.address,
+            params[0].q,
+            params[0].b,
+            UNISWAP_INTEGRATION,
+            "0x"
+          );
+
+          await ctx.ct.aaveLeverageModule.delever(
+            zToken.address,
+            weth.address,
+            dai.address,
+            params[1].b,
+            params[1].q,
+            UNISWAP_INTEGRATION,
+            "0x"
+          );
+        await ctx.aaveFixture.setAssetPriceInOracle(dai.address, ether(0.0008));  // 1 ETH = 1250 dai
+        await ctx.changeUniswapPrice(owner, weth, dai, ether(1250), ether(1000));
+
+        await aWethTracker.push(zToken.address);
+        await wethTracker.push(alice.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(zToken.address, quantity2, alice.address);
+        await wethTracker.push(alice.address);
+        let issueCost = wethTracker.lastSpent(alice.address);
+
+        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(zToken.address, quantity2.add(quantity1), alice.address);
+        await wethTracker.push(alice.address);
+
+        let wethRedeemed = wethTracker.lastEarned(alice.address);   // 
+        let expectedWethRedeemed = quantity1.add(quantity2);  // 0.025 eth
+
+        // IssuingFactor ~ 1 because leverage is 1x / it also is expected to be greater than 1
+        expect(issueCost).to.be.approx(quantity2);
+        expect(issueCost).to.be.gt(quantity2);
+        expect(wethRedeemed).to.be.approx(expectedWethRedeemed);
+      });
+
+      it("Verify issuing factor is as expected after delever price rise", async function (){
+        // issueA -> lever -> delever -> price ^ -> issueA
+        let quantity1 = ether(0.02);
+        let quantity2 = ether(0.005);
+        await weth.connect(alice.wallet).approve(ctx.ct.issuanceModule.address, MAX_UINT_256);  // ∵ 
+
+        await aWethTracker.push(zToken.address);
+        await wethTracker.push(alice.address);
+        
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(zToken.address, quantity1, alice.address);
+        
+        await aWethTracker.push(zToken.address);
+        await wethTracker.push(alice.address);
+
+        let params = [
+          {q: ether(800), b: ether(0.75)},
+          {q: ether(350), b: ether(0.4)},
+        ];
+
+          await ctx.ct.aaveLeverageModule.lever(
+            zToken.address,
+            dai.address,
+            weth.address,
+            params[0].q,
+            params[0].b,
+            UNISWAP_INTEGRATION,
+            "0x"
+          );
+
+          await ctx.ct.aaveLeverageModule.delever(
+            zToken.address,
+            weth.address,
+            dai.address,
+            params[1].b,
+            params[1].q,
+            UNISWAP_INTEGRATION,
+            "0x"
+          );
+        await ctx.aaveFixture.setAssetPriceInOracle(dai.address, ether(0.0008));  // 1 ETH = 1250 dai
+        await ctx.changeUniswapPrice(owner, weth, dai, ether(1250), ether(1000));
+
+        await aWethTracker.push(zToken.address);
+        await wethTracker.push(alice.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(zToken.address, quantity2, alice.address);
+        await wethTracker.push(alice.address);
+        let issueCost = wethTracker.lastSpent(alice.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(zToken.address, quantity2.add(quantity1), alice.address);
+        await wethTracker.push(alice.address);
+
+        let wethRedeemed = wethTracker.lastEarned(alice.address);   // 26932481526926299;
+
+        let expectedIssueCost = preciseMul(quantity2, ether(1.08));
+        // (leverage-1)*price_rise/price*quantity
+        let profit = ether(0.4*250/1250*0.02);
+        let expectedWethRedeemed = quantity1.add(profit).add(expectedIssueCost);  // 0.027 eth
+
+        // IssuingFactor ~ 1.08 , leverage is 1.4x 
+        expect(issueCost).to.be.approx(expectedIssueCost);
+        expect(wethRedeemed).to.be.approx(expectedWethRedeemed);
+        expect(await ctx.aTokens.aWeth.balanceOf(zToken.address)).to.be.lt(ether(0.00001));
+      });
+
+      it("Verify issuing factor is as expected after lever price rise", async function (){
+        // issueA -> lever -> price ^ -> issueA
+        let quantity1 = ether(0.02);
+        let quantity2 = ether(0.005);
+        await weth.connect(alice.wallet).approve(ctx.ct.issuanceModule.address, MAX_UINT_256);  // ∵ 
+
+        await aWethTracker.push(zToken.address);
+        await wethTracker.push(alice.address);
+        
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(zToken.address, quantity1, alice.address);
+        
+        await aWethTracker.push(zToken.address);
+        await wethTracker.push(alice.address);
+
+        let params = [
+          {q: ether(500), b: ether(0.45)},
+        ];
+
+          await ctx.ct.aaveLeverageModule.lever(
+            zToken.address,
+            dai.address,
+            weth.address,
+            params[0].q,
+            params[0].b,
+            UNISWAP_INTEGRATION,
+            "0x"
+          );
+
+        await ctx.aaveFixture.setAssetPriceInOracle(dai.address, ether(0.0008));  // 1 ETH = 1250 dai
+        await ctx.changeUniswapPrice(owner, weth, dai, ether(1250), ether(1000));
+
+        await aWethTracker.push(zToken.address);
+        await wethTracker.push(alice.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(zToken.address, quantity2, alice.address);
+        await wethTracker.push(alice.address);
+        let issueCost = wethTracker.lastSpent(alice.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(zToken.address, quantity2.add(quantity1), alice.address);
+        await wethTracker.push(alice.address);
+
+        let wethRedeemed = wethTracker.lastEarned(alice.address);   // ;
+
+        let expectedIssueCost = preciseMul(quantity2, ether(1.1));
+        // (leverage-1)*price_rise/price*quantity
+        let profit = ether(0.5*250/1250*0.02);
+        let expectedWethRedeemed = quantity1.add(profit).add(expectedIssueCost);  // 0.0275 eth
+
+        // IssuingFactor ~ 1.1 , leverage is 1.5x 
+        expect(issueCost).to.be.approx(expectedIssueCost);
+        expect(wethRedeemed).to.be.approx(expectedWethRedeemed);
+        expect(await ctx.aTokens.aWeth.balanceOf(zToken.address)).to.be.lt(ether(0.00001));
       });
     });
 });

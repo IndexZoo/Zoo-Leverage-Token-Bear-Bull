@@ -248,7 +248,7 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
     bool public anySetAllowed;
 
     // Leveraging state recorded -- for issuing new tokens 
-    LeveragingStateInfo  public leveragingStateInfo;
+    mapping(ISetToken => LeveragingStateInfo) public leveragingStateInfo;
 
     // Are bots permitted for a specified setToken
     mapping(ISetToken => bool) internal _anyBotAllowed;
@@ -812,6 +812,34 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
         }
     }
 
+    /**
+     * Returns true if the address is authorized bot 
+     */
+    function updateAnyBotAllowed( 
+        ISetToken _setToken, 
+        bool _allowed
+    ) 
+    external 
+    onlyManagerAndValidSet(_setToken)  
+    {
+        _anyBotAllowed[_setToken] = _allowed;
+        emit AnyBotAllowedUpdated(_setToken, _allowed);
+    }
+
+    /**
+     * Returns true if the address is authorized bot 
+     */
+    function setCallerPermission( 
+        ISetToken _setToken, 
+        address _caller, 
+        bool _allowed
+    ) 
+    external 
+    onlyManagerAndValidSet(_setToken)  
+    {
+        _authorizedCallers[_setToken][_caller] = _allowed;
+        emit CallerPermissionSet(_setToken, _caller, _allowed);
+    }
     
     /* ============ External Getter Functions ============ */
 
@@ -827,16 +855,17 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
         );
     }
     
-    // TODO: add arg _setToken / requires mapping for leveragingStateInfo
-    function getIssuingMultiplier () 
+    function getIssuingMultiplier (
+        ISetToken _setToken
+    ) 
     public 
     view 
     returns (uint256 _multiplier, uint256 _price) 
     {
-        address collateralAsset = enabledAssets[leveragingStateInfo.setToken].collateralAssets;
-        address borrowAsset = enabledAssets[leveragingStateInfo.setToken].borrowAssets;
+        address collateralAsset = enabledAssets[_setToken].collateralAssets;
+        address borrowAsset = enabledAssets[_setToken].borrowAssets;
         require(borrowAsset != address(0), "No issuing before assigning borrowAsset");
-        uint256 initLeverage = leveragingStateInfo.initLeverage;
+        uint256 initLeverage = leveragingStateInfo[_setToken].initLeverage;
 
         
         IPriceOracleGetter priceOracle = IPriceOracleGetter(lendingPoolAddressesProvider.getPriceOracle());
@@ -845,18 +874,18 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
         if(initLeverage == 1 ether) return (1 ether, _price);
 
         uint256 factor;
-        uint256 priceDip = leveragingStateInfo.initPrice.preciseDiv(_price) ;
+        uint256 priceDip = leveragingStateInfo[_setToken].initPrice.preciseDiv(_price) ;
         // TODO: validate price resides within valid range
         if(priceDip <= 1 ether) 
         {
             factor = initLeverage
                         .preciseMulCeil(1 ether - priceDip)
-                        .add(leveragingStateInfo.initPrice.preciseDivCeil(_price));
+                        .add(leveragingStateInfo[_setToken].initPrice.preciseDivCeil(_price));
         }  else {
-            factor =  leveragingStateInfo.initPrice.preciseDivCeil(_price)
+            factor =  leveragingStateInfo[_setToken].initPrice.preciseDivCeil(_price)
                         .sub(initLeverage.preciseMulCeil( priceDip - 1 ether));
         }
-        _multiplier =  factor.preciseMulCeil(leveragingStateInfo.accumulatedMultiplier);
+        _multiplier =  factor.preciseMulCeil(leveragingStateInfo[_setToken].accumulatedMultiplier);
     }
 
 
@@ -1204,6 +1233,151 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
         }
     }
 
+
+    function _lever(
+        ISetToken _setToken,
+        IERC20 _borrowAsset,
+        IERC20 _collateralAsset,
+        uint256 _borrowQuantityUnits,
+        uint256 _minReceiveQuantityUnits,
+        string memory _tradeAdapterName,
+        bytes memory _tradeData
+    )
+        internal 
+    {
+        // For levering up, send quantity is derived from borrow asset and receive quantity is derived from 
+        // collateral asset
+        ActionInfo memory leverInfo = _createAndValidateActionInfo(
+            _setToken,
+            _borrowAsset,
+            _collateralAsset,
+            _borrowQuantityUnits,
+            _minReceiveQuantityUnits,
+            _tradeAdapterName,
+            true
+        );
+
+        _borrow(leverInfo.setToken, leverInfo.lendingPool, leverInfo.borrowAsset, leverInfo.notionalSendQuantity);
+
+        uint256 postTradeReceiveQuantity = _executeTrade(leverInfo, _borrowAsset, _collateralAsset, _tradeData);
+
+        uint256 protocolFee = _accrueProtocolFee(_setToken, _collateralAsset, postTradeReceiveQuantity);
+
+        uint256 postTradeCollateralQuantity = postTradeReceiveQuantity.sub(protocolFee);
+
+        _deposit(leverInfo.setToken, leverInfo.lendingPool, _collateralAsset, postTradeCollateralQuantity);
+
+        _updateLeverPositions(leverInfo, _borrowAsset);
+        
+        _updateLeveragingStateInfo(_setToken);
+
+        emit LeverageIncreased(
+            _setToken,
+            _borrowAsset,
+            _collateralAsset,
+            leverInfo.exchangeAdapter,
+            leverInfo.notionalSendQuantity,
+            postTradeCollateralQuantity,
+            protocolFee
+        );
+    }
+    
+    function _delever(
+        ISetToken _setToken,
+        IERC20 _collateralAsset,
+        IERC20 _repayAsset,
+        uint256 _redeemQuantityUnits,
+        uint256 _minRepayQuantityUnits,
+        string memory _tradeAdapterName,
+        bytes memory _tradeData
+    )
+        internal 
+    {
+        // Note: for delevering, send quantity is derived from collateral asset and receive quantity is derived from 
+        // repay asset
+        ActionInfo memory deleverInfo = _createAndValidateActionInfo(
+            _setToken,
+            _collateralAsset,
+            _repayAsset,
+            _redeemQuantityUnits,
+            _minRepayQuantityUnits,
+            _tradeAdapterName,
+            false
+        );
+
+        _withdraw(deleverInfo.setToken, deleverInfo.lendingPool, _collateralAsset, deleverInfo.notionalSendQuantity);
+
+        uint256 postTradeReceiveQuantity = _executeTrade(deleverInfo, _collateralAsset, _repayAsset, _tradeData);
+
+        uint256 protocolFee = _accrueProtocolFee(_setToken, _repayAsset, postTradeReceiveQuantity);
+
+        uint256 repayQuantity = postTradeReceiveQuantity.sub(protocolFee);
+
+        _repayBorrow(deleverInfo.setToken, deleverInfo.lendingPool, _repayAsset, repayQuantity);
+
+        _updateDeleverPositions(deleverInfo, _repayAsset);
+
+        _updateLeveragingStateInfo(_setToken);
+
+        emit LeverageDecreased(
+            _setToken,
+            _collateralAsset,
+            _repayAsset,
+            deleverInfo.exchangeAdapter,
+            deleverInfo.notionalSendQuantity,
+            repayQuantity,
+            protocolFee
+        );
+    }
+    function _initializeLeveragingStateInfo(
+        ISetToken _setToken,
+        IERC20 _collateralAssets,
+        IERC20 _borrowAssets
+    )
+    internal 
+    {
+        LeveragingStateInfo memory _info;
+        _info.setToken = _setToken;
+        _info.collateralAsset = _collateralAssets;
+        _info.borrowAsset = _borrowAssets;
+        _info.accumulatedMultiplier = 1 ether;
+        _info.initLeverage = 1 ether;
+        leveragingStateInfo[_setToken] = _info;
+
+
+        IAToken aToken = underlyingToReserveTokens[ _collateralAssets].aToken;
+        _updateCollateralPosition(
+            _setToken,
+            aToken,
+            1 ether
+        );
+    }
+
+    function _updateLeveragingStateInfo (ISetToken _setToken) internal 
+    {
+        // update initPrice, initLeverage & accumulatedMultiplier
+
+        (
+            uint256 multiplier,
+            uint256 price
+        ) = getIssuingMultiplier(_setToken);
+
+        (
+            uint256 totalCollateralETH, 
+            uint256 totalDebtETH,
+            ,,,
+        ) = ILendingPool(lendingPoolAddressesProvider.getLendingPool()).getUserAccountData(address(_setToken)); 
+
+        uint256 leverage = totalCollateralETH.preciseDiv(totalCollateralETH.sub(totalDebtETH));
+
+        leveragingStateInfo[_setToken].initLeverage = leverage;
+        leveragingStateInfo[_setToken].initPrice = price;
+        leveragingStateInfo[_setToken].accumulatedMultiplier = multiplier;
+
+    }
+
+    /* ============== private views =============== */
+
     /**
      * @dev Validate common requirements for lever and delever
      */
@@ -1270,220 +1444,12 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
     }
 
 
-    /* ========================== Others =========================*/
 
     function _getUniswapSpender() internal view returns (IUniswapV2Router _router)
     {
         _router = IUniswapV2Router(
             IExchangeAdapter(getAndValidateAdapter(UNISWAP_INTEGRATION)).getSpender()
         );
-    }
-
-    function _lever(
-        ISetToken _setToken,
-        IERC20 _borrowAsset,
-        IERC20 _collateralAsset,
-        uint256 _borrowQuantityUnits,
-        uint256 _minReceiveQuantityUnits,
-        string memory _tradeAdapterName,
-        bytes memory _tradeData
-    )
-        internal 
-    {
-        // For levering up, send quantity is derived from borrow asset and receive quantity is derived from 
-        // collateral asset
-        ActionInfo memory leverInfo = _createAndValidateActionInfo(
-            _setToken,
-            _borrowAsset,
-            _collateralAsset,
-            _borrowQuantityUnits,
-            _minReceiveQuantityUnits,
-            _tradeAdapterName,
-            true
-        );
-
-        _borrow(leverInfo.setToken, leverInfo.lendingPool, leverInfo.borrowAsset, leverInfo.notionalSendQuantity);
-
-        uint256 postTradeReceiveQuantity = _executeTrade(leverInfo, _borrowAsset, _collateralAsset, _tradeData);
-
-        uint256 protocolFee = _accrueProtocolFee(_setToken, _collateralAsset, postTradeReceiveQuantity);
-
-        uint256 postTradeCollateralQuantity = postTradeReceiveQuantity.sub(protocolFee);
-
-        _deposit(leverInfo.setToken, leverInfo.lendingPool, _collateralAsset, postTradeCollateralQuantity);
-
-        _updateLeverPositions(leverInfo, _borrowAsset);
-        
-        _updateLeveragingStateInfo();
-
-        emit LeverageIncreased(
-            _setToken,
-            _borrowAsset,
-            _collateralAsset,
-            leverInfo.exchangeAdapter,
-            leverInfo.notionalSendQuantity,
-            postTradeCollateralQuantity,
-            protocolFee
-        );
-    }
-    
-    function _delever(
-        ISetToken _setToken,
-        IERC20 _collateralAsset,
-        IERC20 _repayAsset,
-        uint256 _redeemQuantityUnits,
-        uint256 _minRepayQuantityUnits,
-        string memory _tradeAdapterName,
-        bytes memory _tradeData
-    )
-        internal 
-    {
-        // Note: for delevering, send quantity is derived from collateral asset and receive quantity is derived from 
-        // repay asset
-        ActionInfo memory deleverInfo = _createAndValidateActionInfo(
-            _setToken,
-            _collateralAsset,
-            _repayAsset,
-            _redeemQuantityUnits,
-            _minRepayQuantityUnits,
-            _tradeAdapterName,
-            false
-        );
-
-        _withdraw(deleverInfo.setToken, deleverInfo.lendingPool, _collateralAsset, deleverInfo.notionalSendQuantity);
-
-        uint256 postTradeReceiveQuantity = _executeTrade(deleverInfo, _collateralAsset, _repayAsset, _tradeData);
-
-        uint256 protocolFee = _accrueProtocolFee(_setToken, _repayAsset, postTradeReceiveQuantity);
-
-        uint256 repayQuantity = postTradeReceiveQuantity.sub(protocolFee);
-
-        _repayBorrow(deleverInfo.setToken, deleverInfo.lendingPool, _repayAsset, repayQuantity);
-
-        _updateDeleverPositions(deleverInfo, _repayAsset);
-
-        _updateLeveragingStateInfo();
-
-        emit LeverageDecreased(
-            _setToken,
-            _collateralAsset,
-            _repayAsset,
-            deleverInfo.exchangeAdapter,
-            deleverInfo.notionalSendQuantity,
-            repayQuantity,
-            protocolFee
-        );
-    }
-    // TODO: Move these funcs to library
-    function _getSwapAmountOut(
-        uint256 _amountIn,
-        address _assetIn,
-        address _assetOut
-    )
-    private
-    view
-    returns (uint256 _amountOut)
-    {
-        address [] memory path = new address[](2);
-        path[0] = _assetIn; 
-        path[1] = _assetOut;
-        _amountOut = IUniswapV2Router(
-            IExchangeAdapter(getAndValidateAdapter("UNISWAP")).getSpender()
-        ).getAmountsOut(_amountIn, path)[1];  // 
-    }
-
-    function _getSwapAmountIn(
-        uint256 _amountOut,
-        address _assetIn,
-        address _assetOut
-    )
-    private
-    view
-    returns (uint256 _amountIn)
-    {
-        address [] memory path = new address[](2);
-        path[0] = _assetIn; 
-        path[1] = _assetOut;
-        _amountIn = IUniswapV2Router(
-            IExchangeAdapter(getAndValidateAdapter("UNISWAP")).getSpender()
-        ).getAmountsIn(_amountOut, path)[0];  // 
-    }
-
-    function _initializeLeveragingStateInfo(
-        ISetToken _setToken,
-        IERC20 _collateralAssets,
-        IERC20 _borrowAssets
-    )
-    private
-    {
-        LeveragingStateInfo memory _info;
-        _info.setToken = _setToken;
-        _info.collateralAsset = _collateralAssets;
-        _info.borrowAsset = _borrowAssets;
-        _info.accumulatedMultiplier = 1 ether;
-        _info.initLeverage = 1 ether;
-        leveragingStateInfo = _info;
-
-
-        IAToken aToken = underlyingToReserveTokens[ _collateralAssets].aToken;
-        _updateCollateralPosition(
-            _setToken,
-            aToken,
-            1 ether
-        );
-    }
-
-    function _updateLeveragingStateInfo () private 
-    {
-        // update initPrice, initLeverage & accumulatedMultiplier
-
-        address setToken = address(leveragingStateInfo.setToken);
-        (
-            uint256 multiplier,
-            uint256 price
-        ) = getIssuingMultiplier();
-
-        (
-            uint256 totalCollateralETH, 
-            uint256 totalDebtETH,
-            ,,,
-        ) = ILendingPool(lendingPoolAddressesProvider.getLendingPool()).getUserAccountData(setToken); 
-
-        uint256 leverage = totalCollateralETH.preciseDiv(totalCollateralETH.sub(totalDebtETH));
-
-        leveragingStateInfo.initLeverage = leverage;
-        leveragingStateInfo.initPrice = price;
-        leveragingStateInfo.accumulatedMultiplier = multiplier;
-
-    }
-
-    /**
-     * Returns true if the address is authorized bot 
-     */
-    function updateAnyBotAllowed( 
-        ISetToken _setToken, 
-        bool _allowed
-    ) 
-    external 
-    onlyManagerAndValidSet(_setToken)  
-    {
-        _anyBotAllowed[_setToken] = _allowed;
-        emit AnyBotAllowedUpdated(_setToken, _allowed);
-    }
-
-    /**
-     * Returns true if the address is authorized bot 
-     */
-    function setCallerPermission( 
-        ISetToken _setToken, 
-        address _caller, 
-        bool _allowed
-    ) 
-    external 
-    onlyManagerAndValidSet(_setToken)  
-    {
-        _authorizedCallers[_setToken][_caller] = _allowed;
-        emit CallerPermissionSet(_setToken, _caller, _allowed);
     }
 
     /**

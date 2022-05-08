@@ -4,7 +4,7 @@ import { solidity } from "ethereum-waffle";
 import {AaveV2Fixture} from "@setprotocol/set-protocol-v2/dist/utils/fixtures";
 import {AaveV2LendingPool} from "@setprotocol/set-protocol-v2/typechain/AaveV2LendingPool";
 
-import {ether, approx, preciseMul} from "../utils/helpers";
+import {ether, approx, preciseMul, bitcoin} from "../utils/helpers";
 
 import "../utils/test/types";
 import { Context } from "../utils/test/context";
@@ -18,6 +18,8 @@ import { WETH9 } from "@typechain/WETH9";
 import { BigNumber, Wallet } from "ethers";
 import { UniswapV2Router02 } from "@setprotocol/set-protocol-v2/typechain/UniswapV2Router02";
 import { SetToken } from "@typechain/SetToken";
+import {AaveV2AToken} from "@setprotocol/set-protocol-v2/dist/utils/contracts/aaveV2";
+
 chai.use(solidity);
 chai.use(approx);
 
@@ -36,6 +38,7 @@ describe("Testing Ecosystem", function () {
   let weth: WETH9;
   let dai: StandardTokenMock;
   let daiTracker: BalanceTracker;
+  let btc: StandardTokenMock;
     beforeEach("", async () => {
       ctx = new Context();
       await ctx.initialize(false);  // 
@@ -44,6 +47,7 @@ describe("Testing Ecosystem", function () {
       alice = ctx.accounts.alice;
       weth = ctx.tokens.weth as WETH9;
       dai = ctx.tokens.dai;
+      btc = ctx.tokens.btc;
       daiTracker = new BalanceTracker(dai);
     });
     describe("SetProtocol", async function () {
@@ -85,15 +89,16 @@ describe("Testing Ecosystem", function () {
       let depositBorrowSwap = async (
         holder: Account,
         borrowPortion: BigNumber,   // ether ratio 
-        price: number = 1000
+        price: number = 1000,
+        token: StandardTokenMock | WETH9 | undefined = weth
       ) => {
-        let holdersWeth = await weth.balanceOf(holder.address);
-        await approveAndDeposit(weth, holder, holdersWeth );
+        let holdersWeth = await token.balanceOf(holder.address);
+        await approveAndDeposit(token, holder, holdersWeth );
         await aaveLender.connect(holder.wallet).borrow(dai.address, holdersWeth.mul(price).mul(borrowPortion).div(ether(1)), 2, 0, holder.address);
         await router.connect(holder.wallet).swapExactTokensForTokens(
           holdersWeth.mul(price).mul(borrowPortion).div(ether(1)), 
           0, 
-          [dai.address, weth.address],
+          [dai.address, token.address],
           holder.address,
           MAX_UINT_256
         );
@@ -168,6 +173,71 @@ describe("Testing Ecosystem", function () {
         expect(aliceStatus.availableBorrowsETH).to.be.approx(bobStatus.availableBorrowsETH);
         expect(aliceStatus.totalCollateralETH).to.be.approx(bobStatus.totalCollateralETH);
 
+      });
+    });
+    describe.only("Aave tokens ",  async function () {
+      let aaveFixture: AaveV2Fixture;
+      let aaveLender: AaveV2LendingPool;
+      let router: UniswapV2Router02;
+      let aBtc: AaveV2AToken;
+      let approveAndDeposit = async (
+        token: StandardTokenMock | WETH9, 
+        account: Account, 
+        amount: BigNumber
+        ) => 
+        {
+          await token.connect(account.wallet).approve(aaveLender.address, amount);
+          await aaveLender.connect(account.wallet).deposit(token.address, amount, account.address, 0);       
+        };
+      let depositBorrowSwap = async (
+        holder: Account,
+        borrowPortion: BigNumber,   // ether ratio 
+        price: number = 1000,
+        token: StandardTokenMock | WETH9 | undefined = weth
+      ) => {
+        let holdersWeth = await token.balanceOf(holder.address);
+        await approveAndDeposit(token, holder, holdersWeth );
+        await aaveLender.connect(holder.wallet).borrow(dai.address, holdersWeth.mul(price).mul(borrowPortion).div(ether(1)), 2, 0, holder.address);
+        await router.connect(holder.wallet).swapExactTokensForTokens(
+          holdersWeth.mul(price).mul(borrowPortion).div(ether(1)), 
+          0, 
+          [dai.address, token.address],
+          holder.address,
+          MAX_UINT_256
+        );
+      };
+
+      beforeEach ("" , async function () {
+        await btc.transfer(bob.address, bitcoin(10));
+        aBtc = ctx.aTokens.aBtc;
+        aaveFixture = ctx.aaveFixture;
+        aaveLender = aaveFixture.lendingPool;
+      });
+
+      it("Verify aBtc is configured", async function () {
+        expect(await aBtc.decimals()).to.be.eq(BigNumber.from(8));
+      });
+
+      it("Deposit btc and verify correct aBtc amount received", async function () {
+        let quantity = bitcoin(0.2);
+        // Deposit 0.2 btc  = 0.2e8
+        await approveAndDeposit(btc, bob, quantity); 
+        expect(await aBtc.balanceOf(bob.address)).to.be.eq(quantity);
+      });
+
+      it("Deposit btc and verify correct borrow amount allowed", async function () {
+        let quantity = bitcoin(0.2);
+        let borrowPortion = ether(0.8);
+        let price = 10000;   // price of 1 btc vs dai
+        let borrowAmount = quantity.mul(price).mul(borrowPortion).div(bitcoin(1));
+        // Deposit 0.2 btc  = 0.2e8
+        await approveAndDeposit(btc, bob, quantity);
+        await daiTracker.push(bob.address);
+        await aaveLender.connect(bob.wallet).borrow(dai.address, borrowAmount , 2, 0, bob.address);
+        await daiTracker.push(bob.address);
+        
+        expect(await aBtc.balanceOf(bob.address)).to.be.eq(quantity);
+        expect(daiTracker.lastEarned(bob.address)).to.be.eq(borrowAmount);
       });
     });
 });

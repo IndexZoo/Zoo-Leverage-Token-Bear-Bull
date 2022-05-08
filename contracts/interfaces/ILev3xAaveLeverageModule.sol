@@ -16,12 +16,14 @@
     SPDX-License-Identifier: Apache License, Version 2.0
 */
 
+import { ISetToken } from "@setprotocol/set-protocol-v2/contracts/interfaces/ISetToken.sol";
+
 pragma solidity 0.6.10;
 pragma experimental "ABIEncoderV2";
 
 
 interface ILev3xAaveLeverageModule {
-    function getIssuingMultiplier () 
+    function getIssuingMultiplier (ISetToken _setToken) 
     external 
     view 
     returns (uint256 _multiplier, uint256 _price);

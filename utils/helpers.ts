@@ -22,9 +22,14 @@ const ether = (amount: number | string): BigNumber => {
   return BigNumber.from(weiString);
 };
 
+const bitcoin = (amount: number): BigNumber => {
+  const weiString = 100000000 * amount; // Handles decimal Bitcoins better
+  return BigNumber.from(weiString);
+};
+
 const {preciseMul: pMul} = require("@setprotocol/set-protocol-v2/dist/utils/common/mathUtils.js");
 const preciseMul = (x: BigNumber, y:BigNumber)  => pMul(x, y) as BigNumber;
 const {preciseDiv: pDiv} = require("@setprotocol/set-protocol-v2/dist/utils/common/mathUtils.js");
 const preciseDiv = (x: BigNumber, y:BigNumber)  => pDiv(x, y) as BigNumber;
 
-export {preciseMul, preciseDiv, ether, bigNumberCloseTo};
+export {preciseMul, preciseDiv, ether, bigNumberCloseTo, bitcoin};

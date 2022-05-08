@@ -8,14 +8,14 @@
 import "module-alias/register";
 import "./types";
 
-import { Account } from "@utils/types";
+import { Account, Address } from "@utils/types";
 import {  ADDRESS_ZERO, MAX_UINT_256, ZERO } from "../constants";
 
 import { ethers } from "hardhat";
 import { bitcoin, ether } from "../common/unitsUtils";
 
 import {BigNumber, Contract} from "ethers";
-import {AaveV2Fixture} from "@setprotocol/set-protocol-v2/dist/utils/fixtures";
+import {AaveV2Fixture, ReserveTokens} from "@setprotocol/set-protocol-v2/dist/utils/fixtures";
 import {AaveV2AToken} from "@setprotocol/set-protocol-v2/dist/utils/contracts/aaveV2";
 import {StandardTokenMock} from "../../typechain-types/StandardTokenMock";
 import { UniswapV2Router02Mock } from "../../typechain-types/UniswapV2Router02Mock";
@@ -100,6 +100,7 @@ interface Tokens {
 
 interface ATokens {
   aWeth: AaveV2AToken;
+  aBtc: AaveV2AToken;
 }
 
 interface Contracts {
@@ -120,6 +121,7 @@ class Context {
   public aTokens = <ATokens>{};
   public ct = <Contracts> {};
   public sets: SetToken[] = [];
+  public reserveTokens: Map<Address, ReserveTokens> = new Map([]);
 
   public router?: UniswapV2Router02Mock | UniswapV2Router02;
   public aaveFixture: AaveV2Fixture;
@@ -143,6 +145,34 @@ class Context {
       await this.router!.swapExactTokensForTokens(amount, 0, [weth.address, dai.address], owner.address, MAX_UINT_256) ;
       this.currentWethUniswapLiquidity =  this.currentWethUniswapLiquidity.sub(amount);
     }
+  }
+
+  public async initializeERC20(token: Address, priceInEth: BigNumber) {
+    const tokenObj: StandardTokenMock  = await ethers.getContractAt("StandardTokenMock", token) as StandardTokenMock;
+    // set initial asset prices in ETH
+    await this.aaveFixture.setAssetPriceInOracle(token, priceInEth);
+
+    // As per Aave's interest rate model, if U < U_optimal, R_t = R_0 + (U_t/U_optimal) * R_slope1, when U_t = 0, R_t = R_0
+    // R_0 is the interest rate when utilization is 0 (it's the intercept for the above linear equation)
+    // And for higher precision it is expressed in Rays
+    const oneRay = BigNumber.from(10).pow(27);	// 1e27
+    // set initial market rates (R_0)
+    await this.aaveFixture.setMarketBorrowRate(token, oneRay.mul(3).div(100));
+
+    // Deploy and configure WETH reserve
+    let reserveTokens = await this.aaveFixture.createAndEnableReserve(
+      token, 
+      "a" + this.capitalizeFirstLetter(await tokenObj.symbol()),
+      await tokenObj.decimals(), 
+      BigNumber.from(8000),   // base LTV: 80%
+      BigNumber.from(8250),   // liquidation threshold: 82.5%
+      BigNumber.from(10500),  // liquidation bonus: 105.00%
+      BigNumber.from(1000),   // reserve factor: 10%
+      true,					          // enable borrowing on reserve
+      true					          // enable stable debts
+    );
+
+    this.reserveTokens.set(token, reserveTokens);
   }
 
   public async setUniswapIntegration(): Promise<void> {
@@ -222,6 +252,10 @@ class Context {
 
   }
 
+  private capitalizeFirstLetter(s: String) {
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  }
+
 
 
 
@@ -271,6 +305,9 @@ class Context {
         ZERO
       );
       this.aTokens.aWeth = this.aaveFixture.wethReserveTokens.aToken;
+
+      await this.initializeERC20(this.tokens.btc.address, ether(10));
+      this.aTokens.aBtc = (this.reserveTokens.get(this.tokens.btc.address)).aToken;
       /* ============================================= Zoo Ecosystem ==============================================================*/
       this.ct.controller =  await (await ethers.getContractFactory("Controller")).deploy(
         this.accounts.protocolFeeRecipient.address

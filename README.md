@@ -1,7 +1,21 @@
 # Dev Phase
 ## TODO
-- TODO: use this aaveLeverageModule.spec.ts:507 test to apply my target scenario
-- TODO: Test AAVE flashloans alongside multiple deporrow (deposit-borrow) 
+        // TODO: work on other tokens other decimals (matic / btc) -> bear tokens
+        // TODO: validate price uniswap synced with oracle on redeem and issue
+        // TODO: Disallow borrowing any different quoteToken
+        
+        // TODO: some tests for lose|win
+        // TODO: Example test with changing lev
+        // TODO: tests for essential events emitted
+        
+        // TODO: time advance for checking borrow fees
+        // TODO: streamfees
+        // TODO: Rebalance
+
+// Notes: 
+// In order to repay debt check withdrawable > debt`
+//    - then withdraw debt` = amountIn(weth, debtAmount) = collateralAmountToWithdraw 
+///   - else withdraw the allowed withdrawable then pay all withdrawable for part of debt
 ## Not SetProto stds
 - Debt gets transferred to issuer in Set Proto
 

@@ -62,7 +62,7 @@ library IndexUtils {
         ILev3xAaveLeverageModule  levModule =  ILev3xAaveLeverageModule(externalModules[0]);
         (
             uint256 factor,
-        ) = levModule.getIssuingMultiplier();
+        ) = levModule.getIssuingMultiplier(_setToken);
         return factor;
     }
 
