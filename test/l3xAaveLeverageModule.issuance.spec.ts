@@ -5,8 +5,9 @@ import { ethers } from "hardhat";
 import { createFixtureLoader, solidity } from "ethereum-waffle";
 import {AaveV2Fixture} from "@setprotocol/set-protocol-v2/dist/utils/fixtures";
 import {AaveV2LendingPool} from "@setprotocol/set-protocol-v2/typechain/AaveV2LendingPool";
+import {AaveV2AToken} from "@setprotocol/set-protocol-v2/dist/utils/contracts/aaveV2";
 
-import {ether, approx, preciseMul} from "../utils/helpers";
+import {ether, approx, preciseMul, bitcoin} from "../utils/helpers";
 
 import { Context } from "../utils/test/context";
 import { Account } from "@utils/types";
@@ -578,5 +579,40 @@ describe("Testing Issuance with Aaveleverage", function () {
         expect(wethRedeemed).to.be.approx(expectedWethRedeemed);
         expect(await ctx.aTokens.aWeth.balanceOf(zToken.address)).to.be.lt(ether(0.00001));
       });
+    });
+
+    describe("Issue/Redeem for other token bases", async function() {
+      let btcIndex: SetToken;
+      let btc: StandardTokenMock;
+      let aBtc: any;
+      let btcTracker: BalanceTracker ;
+      let aBtcTracker: BalanceTracker;
+      beforeEach ("",  async function(){
+        await ctx.createLevBtcIndex();
+        btcIndex = ctx.sets[ctx.sets.length-1];
+        btc = ctx.tokens.btc;
+        aBtc = ctx.aTokens.aBtc;
+        btcTracker = new BalanceTracker(btc);
+        aBtcTracker = new BalanceTracker(aBtc);
+        
+        await btc.transfer(alice.address, bitcoin(10));
+      }) ;
+      it.only("Issuing levBtc -- lev3x token with btc base", async function () {
+        let quantity = ether(0.2);  // 
+        let expectedEquityAmount = bitcoin(0.2);
+        await btc.connect(alice.wallet).approve(ctx.ct.issuanceModule.address, quantity);  // ∵ 
+
+        await aBtcTracker.push(btcIndex.address);
+        await btcTracker.push(alice.address);
+        
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(btcIndex.address, quantity, alice.address);
+        
+        await aBtcTracker.push(btcIndex.address);
+        await btcTracker.push(alice.address);
+
+        expect(btcTracker.lastSpent(alice.address)).to.be.eq(expectedEquityAmount);
+        expect(aBtcTracker.lastEarned(btcIndex.address)).to.be.eq(expectedEquityAmount);
+      });
+      // FIXME: TODO: TODO: more tests here 
     });
 });

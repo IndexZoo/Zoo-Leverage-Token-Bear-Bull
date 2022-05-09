@@ -20,6 +20,7 @@ pragma solidity 0.6.10;
 pragma experimental ABIEncoderV2;
 
 import { SafeMath } from "@openzeppelin/contracts/math/SafeMath.sol";
+import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { PreciseUnitMath } from "@setprotocol/set-protocol-v2/contracts/lib/PreciseUnitMath.sol";
 import { SignedSafeMath } from "@openzeppelin/contracts/math/SignedSafeMath.sol";
 import { ISetToken } from "@setprotocol/set-protocol-v2/contracts/interfaces/ISetToken.sol";
@@ -48,6 +49,11 @@ library IndexUtils {
     using Address for address;
     using PreciseUnitMath for uint256;
 
+    enum AssetType {
+        COLLATERAL,
+        BORROW 
+    }
+
     /* =========== SetToken ========== */
 
     function calculateIssuingFactor(
@@ -66,6 +72,27 @@ library IndexUtils {
         return factor;
     }
 
+    function assetPriceInETH(
+        ISetToken _setToken,
+        ILendingPoolAddressesProvider _lendingPoolAddressesProvider,
+        AssetType _assetType
+    )
+    public 
+    view 
+    returns (uint256 _assetPrice)
+    {
+        address[] memory components = _setToken.getComponents();
+        require( _assetType == AssetType.COLLATERAL || components.length == 2, "Redemption not yet allowed");
+        IPriceOracleGetter priceOracle = IPriceOracleGetter(_lendingPoolAddressesProvider.getPriceOracle());
+        address asset;
+        if(_assetType == AssetType.COLLATERAL) {
+            asset = IAToken(components[0]).UNDERLYING_ASSET_ADDRESS();
+        } else {
+            asset = components[1];
+        }
+        _assetPrice = priceOracle.getAssetPrice(asset) ;
+    }
+
     function calculateDebtWithSwapFees(
         ISetToken _setToken,
         ILendingPoolAddressesProvider _lendingPoolAddressesProvider,
@@ -80,7 +107,9 @@ library IndexUtils {
         if(_totalDebtETH == 0) return 0;
         require(components.length >= 2, "Redemption not yet allowed");
         IPriceOracleGetter priceOracle = IPriceOracleGetter(_lendingPoolAddressesProvider.getPriceOracle());
-        uint256 absDebt = _totalDebtETH.preciseDivCeil(priceOracle.getAssetPrice(components[1]));
+        uint256 absDebt = _totalDebtETH
+                    .preciseDivCeil(priceOracle.getAssetPrice(components[1]))
+                    .preciseMul(getUnitOf(IERC20(components[0])));
         _debt = getSwapAmountIn(
             _router,
             absDebt, 
@@ -101,7 +130,7 @@ library IndexUtils {
     )
     external 
     view
-    returns (uint256 units, uint256 repayAmount, uint256 withdrawable, uint256 totalDebtETH) 
+    returns (uint256 _units, uint256 _repayAmount, uint256 _withdrawable, uint256 _totalDebtETH) 
     {
         uint256 totalCollateralETH;
         address collateralAsset = _setToken.getComponents()[0];
@@ -110,29 +139,35 @@ library IndexUtils {
 
         (
             totalCollateralETH, 
-            totalDebtETH,
+            _totalDebtETH,
             ,, ltv,
         ) = ILendingPool(_lendingPoolAddressesProvider.getLendingPool()).getUserAccountData(address(_setToken));
-
+        
+        // units redeemed according to collateral/debt proportion
         // updating units because the deviation between dex & oracle prices might cause increase for (c - d) which is anamolous
-        units = (totalCollateralETH.sub(totalDebtETH)).preciseDivCeil(_setToken.totalSupply()).preciseMulCeil(_setTokenQuantity);
-        units = units.preciseDivCeil(_setToken.totalSupply());   // FIXME: recheck
+        _units = (totalCollateralETH.sub(_totalDebtETH)).preciseDivCeil(_setToken.totalSupply()).preciseMulCeil(_setTokenQuantity);
+        _units = _units.preciseDivCeil(_setToken.totalSupply());   // 
         // TODO: TODO: convert totalDebtETH to be amount out of Uniswap
-        if(totalDebtETH == 0)  return (units, 0, totalCollateralETH, 0);
+        if(_totalDebtETH == 0)  return (_units, 0, totalCollateralETH, 0);
 
         uint256 debtInBorrowAsset = getDebtAmount(_lendingPoolAddressesProvider, address(_setToken), borrowAsset); 
         ltv = 1 ether * ltv / 10000;
-        withdrawable = totalCollateralETH.sub(totalDebtETH.preciseDivCeil(ltv)).preciseDiv(_setToken.totalSupply());
+        _withdrawable = totalCollateralETH.sub(_totalDebtETH.preciseDivCeil(ltv)).preciseDiv(_setToken.totalSupply());
 
 
-        totalDebtETH =  getSwapAmountIn(
+        _totalDebtETH =  getSwapAmountIn(
             _router,
             debtInBorrowAsset,
             IAToken(collateralAsset).UNDERLYING_ASSET_ADDRESS(),
             borrowAsset
         ); 
 
-        repayAmount = totalDebtETH.preciseDiv(_setToken.totalSupply()) >= withdrawable? withdrawable:totalDebtETH.preciseDivCeil(_setToken.totalSupply());
+        _repayAmount = _totalDebtETH.preciseDiv(_setToken.totalSupply()) >= _withdrawable? _withdrawable:_totalDebtETH.preciseDivCeil(_setToken.totalSupply());
+        
+        _repayAmount = _repayAmount.preciseDiv(
+            assetPriceInETH(_setToken, _lendingPoolAddressesProvider, AssetType.COLLATERAL)
+        );
+        _repayAmount = _repayAmount.preciseMul(getUnitOf(IERC20(collateralAsset)));
     }
 
     /* ========== Lending Protocol ========= */
@@ -265,13 +300,13 @@ library IndexUtils {
     /*============= ERC20 ==============*/
 
     function getUnitOf(
-        address _token
+        IERC20 _token
     )
     internal 
     view
     returns (uint256)
     {
-        return 10**uint256(getDecimalsOf(_token));
+        return 10**uint256(getDecimalsOf(address(_token)));
     }
 
     function getDecimalsOf (

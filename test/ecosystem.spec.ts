@@ -175,7 +175,7 @@ describe("Testing Ecosystem", function () {
 
       });
     });
-    describe.only("Aave tokens ",  async function () {
+    describe("Aave tokens ",  async function () {
       let aaveFixture: AaveV2Fixture;
       let aaveLender: AaveV2LendingPool;
       let router: UniswapV2Router02;

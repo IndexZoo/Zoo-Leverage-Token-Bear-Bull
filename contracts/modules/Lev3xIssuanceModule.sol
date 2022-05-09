@@ -65,6 +65,7 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
     using PreciseUnitMath for int256;
     using IndexUtils for ISetToken;
     using IndexUtils for IUniswapV2Router;
+    using IndexUtils for IERC20;
 
     string constant public UNISWAP_INTEGRATION = "UNISWAP";  // For uniswap-like dex
     uint256 constant public LTV_MARGIN = 0.05 ether;  // if ltv=80% then with margin it is 85%
@@ -240,7 +241,7 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
         uint256 _quantity,
         address _to,
         bool _isIssue,
-        address _components,
+        address _component,
         uint256 _componentEquityQuantities,
         uint256 _initialSetSupply,
         uint256 _finalSetSupply
@@ -249,38 +250,37 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
     {
         // Swap tokens for aTokens by depositing onto Lender
         if(_isIssue)  _preIssueComponents(
-            _components, 
+            _component, 
             _componentEquityQuantities
         );
-            address component = _components;
             uint256 componentQuantity = _componentEquityQuantities;
             if (componentQuantity > 0) {
                 if (_isIssue) {
                     // Call SafeERC20#safeTransferFrom instead of ExplicitERC20#transferFrom
                     // Non-intuitive !! but AToken required this line 
-                    IERC20(IAToken(component)).approve(address(this), componentQuantity);
+                    IERC20(IAToken(_component)).approve(address(this), componentQuantity);
 
                     SafeERC20.safeTransferFrom(
-                        IERC20(component),
+                        IERC20(_component),
                         address(this),
                         address(_setToken),
                         componentQuantity
                     );
 
-                    IssuanceValidationUtils.validateCollateralizationPostTransferInPreHook(_setToken, component, _initialSetSupply, componentQuantity);
+                    IssuanceValidationUtils.validateCollateralizationPostTransferInPreHook(_setToken, _component, _initialSetSupply, componentQuantity);
 
-                    _executeExternalPositionHooks(_setToken, _quantity, IERC20(component), true, true);
+                    _executeExternalPositionHooks(_setToken, _quantity, IERC20(_component), true, true); // no logic executed
                 } else {
-                    _executeExternalPositionHooks(_setToken, _quantity, IERC20(component), false, true);
+                    _executeExternalPositionHooks(_setToken, _quantity, IERC20(_component), false, true);
 
-                    componentQuantity = _validateComponentLastTransfer(_setToken, component, componentQuantity);
+                    componentQuantity = _validateComponentLastTransfer(_setToken, _component, componentQuantity);
                     // Call Invoke#invokeTransfer instead of Invoke#strictInvokeTransfer
-                    _setToken.invokeTransfer(component, address(this), componentQuantity);
+                    _setToken.invokeTransfer(_component, address(this), componentQuantity);
 
-                    IssuanceValidationUtils.validateCollateralizationPostTransferOut(_setToken, component, _finalSetSupply);
+                    IssuanceValidationUtils.validateCollateralizationPostTransferOut(_setToken, _component, _finalSetSupply);
                 }
             }
-        if(!_isIssue) _postRedeemComponents(component, componentQuantity, _to);
+        if(!_isIssue) _postRedeemComponents(_component, componentQuantity, _to);
     }
      
     /**
@@ -399,35 +399,61 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
         {
             // First asset of components represents the aToken of the baseToken 
             address[] memory components = _setToken.getComponents();
-            uint256 setTotalSupply = _setToken.totalSupply();
-            ILendingPool lender = ILendingPool(lendingPoolAddressesProvider.getLendingPool());  
 
-            uint256 cumulativeEquity ; 
-            (
-                uint256 totalCollateralETH, 
-                uint256 totalDebtETH,
-            ,,,) = lender.getUserAccountData(address(_setToken)); 
 
             // Considering issuing factor for price change (oracle) and leveraging
             uint256 factor = _setToken.calculateIssuingFactor();
+            (
+                uint256 unitCollateral, 
+                uint256 unitDebt
+            ) = _calculcateUnitsFromTotal(
+                _setToken, 
+                components, 
+                factor, 
+                _isIssue
+            );
+            
+           uint256 cumulativeEquity =  unitCollateral.sub(unitDebt);
 
-            uint256 unitCollateralETH = _isIssue? factor.preciseMulCeil(_setToken.getDefaultPositionRealUnit(components[0]).toUint256()):
-                                          totalCollateralETH.preciseDiv(setTotalSupply);
+            return (components[0], cumulativeEquity, 0);
+        }
+    function _calculcateUnitsFromTotal(
+        ISetToken _setToken,
+        address[] memory _components,
+        uint256 _factor,
+        bool _isIssue
+    )
+    internal
+    view
+    returns (uint256 _unitCollateral, uint256 _unitDebt)
+    {
+
+        uint256 setTotalSupply = _setToken.totalSupply();
+        ILendingPool lender = ILendingPool(lendingPoolAddressesProvider.getLendingPool());  
+
+        (
+            uint256 totalCollateralETH, 
+            uint256 totalDebtETH,
+        ,,,) = lender.getUserAccountData(address(_setToken)); 
+        // unitCollateral represents base (not ETH)
+        _unitCollateral = _isIssue? 
+                    _factor
+                    .preciseMulCeil(_setToken.getDefaultPositionRealUnit(_components[0]).toUint256()): 
+                    totalCollateralETH
+                    .preciseDiv(setTotalSupply)
+                    .preciseDiv(_setToken.assetPriceInETH(lendingPoolAddressesProvider, IndexUtils.AssetType.COLLATERAL))  // 
+                    .preciseMul(IERC20(_components[0]).getUnitOf()) ;
             
             // Considering successive delever loss due to swap fees and price deviation which increases debt
             // getAmountsIn(totalDebtETH*oraclePrice) / setTotalSupply
+            // totalDebtETH represents base (not ETH)
             totalDebtETH = _setToken.calculateDebtWithSwapFees(
                 lendingPoolAddressesProvider, 
                 _getUniswapSpender(),
                 totalDebtETH
-            );  
-            uint256 unitDebtETH = _isIssue? 0:
-                                    totalDebtETH.preciseDivCeil(setTotalSupply);
-            
-           cumulativeEquity =  unitCollateralETH.sub(unitDebtETH);
-
-            return (components[0], cumulativeEquity, 0);
-        }
+            ); 
+            _unitDebt = _isIssue? 0:totalDebtETH.preciseDivCeil(setTotalSupply);
+    }
 
     /**
      * Justification: Utilizing multiple delevers in one txn might output a miscalculation 

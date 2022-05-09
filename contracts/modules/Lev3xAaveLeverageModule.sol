@@ -779,8 +779,8 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
     function componentRedeemHook(ISetToken _setToken, uint256 _setTokenQuantity, IERC20 _component, bool _isEquity) external override onlyModule(_setToken) {
         // Check hook not being called for an equity position. If hook is called with equity position and outstanding borrow position
         // exists the loan would be paid down twice, decollateralizing the Set
-        address collateralAsset = enabledAssets[_setToken].collateralAssets;
         if (!_isEquity) {
+            address collateralAsset = enabledAssets[_setToken].collateralAssets;
             address repayAsset = _setToken.getComponents()[1];
 
             for (uint8 i= 0; i <29; i++) {
@@ -803,7 +803,7 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
                         IERC20(collateralAsset),
                         IERC20(repayAsset),
                         repayAmount,
-                        minRepayQuantityUnits.preciseMul(0.95 ether),   // TODO: replace 0.95 by a param
+                        minRepayQuantityUnits.preciseMul(0.95 ether),   // TODO: replace by zero but account for slippage overall 
                         "UNISWAP",
                         "" 
                 );  

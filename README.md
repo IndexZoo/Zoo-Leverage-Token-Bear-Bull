@@ -1,4 +1,4 @@
-# Dev Phase
+# Dev Phase Notes
 ## TODO
         // TODO: work on other tokens other decimals (matic / btc) -> bear tokens
         // TODO: validate price uniswap synced with oracle on redeem and issue
@@ -18,6 +18,8 @@
 ///   - else withdraw the allowed withdrawable then pay all withdrawable for part of debt
 ## Not SetProto stds
 - Debt gets transferred to issuer in Set Proto
+- Lev/delev called only by manager not allowing multiple levs in one txn
+- 
 
 
 # Advanced Sample Hardhat Project

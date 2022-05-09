@@ -201,6 +201,60 @@ class Context {
  /**
    * @dev creates SetToken via a contract factory
    */
+  public async createLevBtcIndex(): Promise<void> {
+      const tx =  await this.ct.creator.create(
+        [this.aTokens.aBtc.address ],
+        [bitcoin(1) ],
+        [
+          this.ct.streamingFee.address,
+          this.ct.aaveLeverageModule.address,
+          this.ct.issuanceModule.address,
+          this.ct.lev3xModuleIssuanceHook.address
+        ], 
+        this.accounts.owner.address, 
+        "Lev3xBtc", 
+        "BtcBull"
+      );
+      const receipt = await tx.wait();
+      const event = receipt.events?.find(p => p.event == "SetTokenCreated");
+      const tokensetAddress = event? event.args? event.args[0]:"":"";
+
+      let deployedSetToken =  await ethers.getContractAt(SetTokenABI, tokensetAddress) as SetToken;
+      this.sets.push(deployedSetToken );
+
+      await this.ct.issuanceModule.initialize(
+        deployedSetToken.address,
+        ether(0),
+        ether(0),
+        ether(0),
+        this.accounts.owner.address,
+        ADDRESS_ZERO
+      );
+
+      await this.ct.streamingFee.initialize(
+        deployedSetToken.address, {
+         feeRecipient: this.accounts.protocolFeeRecipient.address,
+         maxStreamingFeePercentage: ether(0.05),
+         streamingFeePercentage: ether(0.01),
+         lastStreamingFeeTimestamp: 0
+      });
+
+      await this.ct.aaveLeverageModule.updateAllowedSetToken(deployedSetToken.address, true);
+      await this.ct.aaveLeverageModule.initialize(
+        deployedSetToken.address,
+        this.tokens.btc.address,
+        this.tokens.dai.address
+      );
+
+      // -------------- Hooks -------------
+      await this.ct.lev3xModuleIssuanceHook.initialize(deployedSetToken.address);
+      await this.ct.lev3xModuleIssuanceHook.registerToIssuanceModule(deployedSetToken.address);
+
+  }
+
+ /**
+   * @dev creates SetToken via a contract factory
+   */
   public async createZToken(): Promise<void> {
       const tx =  await this.ct.creator.create(
         [this.aTokens.aWeth.address ],
