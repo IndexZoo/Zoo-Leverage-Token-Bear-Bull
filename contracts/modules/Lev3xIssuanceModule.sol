@@ -223,6 +223,7 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
     )
     internal
     {
+        require(_setToken.getComponents().length >= 2, "Index not levereaged yet");
         _executeExternalPositionHooks(_setToken, _quantity, IERC20(_component), _isIssue, false);
     }
 
@@ -446,7 +447,7 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
             
             // Considering successive delever loss due to swap fees and price deviation which increases debt
             // getAmountsIn(totalDebtETH*oraclePrice) / setTotalSupply
-            // totalDebtETH represents base (not ETH)
+            // NOTE totalDebtETH represents base (not ETH) after executing method
             totalDebtETH = _setToken.calculateDebtWithSwapFees(
                 lendingPoolAddressesProvider, 
                 _getUniswapSpender(),

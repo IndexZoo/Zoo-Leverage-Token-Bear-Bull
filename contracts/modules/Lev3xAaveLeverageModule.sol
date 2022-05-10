@@ -792,6 +792,7 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
                 ) = _setToken.calculateRepayAllowances(lendingPoolAddressesProvider, _getUniswapSpender(), _setTokenQuantity);
 
                 if(units <= withdrawable || totalDebtETH == 0) break;
+                // FIXME: throw smth if repayAmount == 0
                 uint256 minRepayQuantityUnits =  _getUniswapSpender().getSwapAmountOut(
                     repayAmount, 
                     collateralAsset,

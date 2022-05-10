@@ -12,7 +12,7 @@ import { Account, Address } from "@utils/types";
 import {  ADDRESS_ZERO, MAX_UINT_256, ZERO } from "../constants";
 
 import { ethers } from "hardhat";
-import { bitcoin, ether } from "../common/unitsUtils";
+import { bitcoin, ether, usdc as usdcUnit } from "../common/unitsUtils";
 
 import {BigNumber, Contract} from "ethers";
 import {AaveV2Fixture, ReserveTokens} from "@setprotocol/set-protocol-v2/dist/utils/fixtures";
@@ -59,7 +59,7 @@ const initUniswapMockRouter = async(owner: Account, weth:  Contract, dai:  Stand
       return router;
 }
 
-const initUniswapRouter = async(owner: Account, weth:  Contract, dai:  StandardTokenMock, btc: StandardTokenMock): Promise<UniswapV2Router02> => {
+const initUniswapRouter = async(owner: Account, weth:  Contract, dai:  StandardTokenMock, btc: StandardTokenMock, usdc?: StandardTokenMock): Promise<UniswapV2Router02> => {
       let router: UniswapV2Router02;
 
          let uniswapFixture =  getUniswapFixture(owner.address);
@@ -73,9 +73,12 @@ const initUniswapRouter = async(owner: Account, weth:  Contract, dai:  StandardT
       await  weth.approve(router.address, MAX_UINT_256);
       await dai.approve(router.address, MAX_UINT_256);
       await btc.approve(router.address, MAX_UINT_256);
+      if(usdc !== undefined) await usdc.approve(router.address, MAX_UINT_256);
       
       await router.addLiquidity(weth.address, dai.address, ether(45), ether(45000), ether(44.9), ether(44900), owner.address, MAX_UINT_256);
-      await router.addLiquidity(btc.address, dai.address, bitcoin(40), ether(400000), ether(39.9), ether(399000), owner.address, MAX_UINT_256);
+      await router.addLiquidity(btc.address, dai.address, bitcoin(40), ether(400000), bitcoin(39.9), bitcoin(399000), owner.address, MAX_UINT_256);
+      if(usdc !== undefined)
+        await router.addLiquidity(btc.address, usdc.address, bitcoin(40), usdcUnit(400000), bitcoin(39.9), usdcUnit(399000), owner.address, MAX_UINT_256);
       return router;
 }
 
@@ -96,6 +99,7 @@ interface Tokens {
   weth: Contract;
   dai: StandardTokenMock;
   btc: StandardTokenMock;
+  usdc: StandardTokenMock;
 }
 
 interface ATokens {
@@ -198,10 +202,13 @@ class Context {
     );
   }
 
+
  /**
    * @dev creates SetToken via a contract factory
    */
-  public async createLevBtcIndex(): Promise<void> {
+  public async createLevBtcIndex(
+    borrowAsset: StandardTokenMock = this.tokens.dai
+    ): Promise<void> {
       const tx =  await this.ct.creator.create(
         [this.aTokens.aBtc.address ],
         [bitcoin(1) ],
@@ -243,7 +250,7 @@ class Context {
       await this.ct.aaveLeverageModule.initialize(
         deployedSetToken.address,
         this.tokens.btc.address,
-        this.tokens.dai.address
+        borrowAsset.address
       );
 
       // -------------- Hooks -------------
@@ -313,7 +320,9 @@ class Context {
 
 
 
-    public async initialize(isMockDex: boolean = true) : Promise<void>  {
+    public async initialize(
+      isMockDex: boolean = true
+    ) : Promise<void>  {
     [
       this.accounts.owner,
       this.accounts.protocolFeeRecipient,
@@ -330,6 +339,7 @@ class Context {
       this.aaveFixture = getAaveV2Fixture(this.accounts.owner.address);
       this.tokens.dai =  await (await ethers.getContractFactory("StandardTokenMock")).deploy(this.accounts.owner.address, ether(100000000), "MockDai", "MDAI", 18);
       this.tokens.btc = await (await ethers.getContractFactory("StandardTokenMock")).deploy(this.accounts.owner.address, bitcoin(1000000), "MockBtc", "MBTC", 8);
+      this.tokens.usdc= await (await ethers.getContractFactory("StandardTokenMock")).deploy(this.accounts.owner.address, bitcoin(1000000), "MockUsdc", "MUSDC", 6);
       this.tokens.weth = await new WETH9__factory(this.accounts.owner.wallet).deploy();
 
       await this.tokens.weth.connect(this.accounts.bob.wallet).deposit({value: ether(50)});
@@ -340,7 +350,7 @@ class Context {
       
       this.router = isMockDex? 
          await initUniswapMockRouter(this.accounts.owner, this.tokens.weth, this.tokens.dai, this.tokens.btc):
-         await initUniswapRouter(this.accounts.owner, this.tokens.weth, this.tokens.dai, this.tokens.btc);      
+         await initUniswapRouter(this.accounts.owner, this.tokens.weth, this.tokens.dai, this.tokens.btc, this.tokens.usdc);
       this.currentWethUniswapLiquidity = ether(45);
 
       await this.aaveFixture.initialize(this.tokens.weth.address, this.tokens.dai.address);
@@ -358,9 +368,11 @@ class Context {
         this.accounts.owner.address,
         ZERO
       );
+
       this.aTokens.aWeth = this.aaveFixture.wethReserveTokens.aToken;
 
       await this.initializeERC20(this.tokens.btc.address, ether(10));
+      await this.initializeERC20(this.tokens.usdc.address, ether(0.001));
       this.aTokens.aBtc = (this.reserveTokens.get(this.tokens.btc.address)).aToken;
       /* ============================================= Zoo Ecosystem ==============================================================*/
       this.ct.controller =  await (await ethers.getContractFactory("Controller")).deploy(

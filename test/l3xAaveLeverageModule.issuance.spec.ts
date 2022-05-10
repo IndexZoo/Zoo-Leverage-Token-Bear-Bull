@@ -8,10 +8,11 @@ import {AaveV2LendingPool} from "@setprotocol/set-protocol-v2/typechain/AaveV2Le
 import {AaveV2AToken} from "@setprotocol/set-protocol-v2/dist/utils/contracts/aaveV2";
 
 import {ether, approx, preciseMul, bitcoin} from "../utils/helpers";
+import {usdc as usdcUnit} from "../utils/common/unitsUtils";
 
 import { Context } from "../utils/test/context";
 import { Account } from "@utils/types";
-import { ADDRESS_ZERO, MAX_INT_256, MAX_UINT_256 } from "../utils/constants";
+import { ADDRESS_ZERO, MAX_INT_256, MAX_UINT_256, ZERO } from "../utils/constants";
 import { StandardTokenMock } from "@typechain/StandardTokenMock";
 import { BalanceTracker } from "../utils/test/BalanceTracker";
 
@@ -597,7 +598,7 @@ describe("Testing Issuance with Aaveleverage", function () {
         
         await btc.transfer(alice.address, bitcoin(10));
       }) ;
-      it.only("Issuing levBtc -- lev3x token with btc base", async function () {
+      it("Issuing levBtc -- lev3x token with btc base", async function () {
         let quantity = ether(0.2);  // 
         let expectedEquityAmount = bitcoin(0.2);
         await btc.connect(alice.wallet).approve(ctx.ct.issuanceModule.address, quantity);  // ∵ 
@@ -613,6 +614,211 @@ describe("Testing Issuance with Aaveleverage", function () {
         expect(btcTracker.lastSpent(alice.address)).to.be.eq(expectedEquityAmount);
         expect(aBtcTracker.lastEarned(btcIndex.address)).to.be.eq(expectedEquityAmount);
       });
-      // FIXME: TODO: TODO: more tests here 
+
+      it("Redeemig levBtc 1x lev -- lev3x token with btc base", async function () {
+        let quantity = ether(0.1);  // 
+        let expectedEquityAmount = bitcoin(0.1);
+        await btc.connect(alice.wallet).approve(ctx.ct.issuanceModule.address, quantity);  // ∵ 
+
+        await aBtcTracker.push(btcIndex.address);
+        await btcTracker.push(alice.address);
+        
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(btcIndex.address, quantity, alice.address);
+
+        // That leverage is effectively nil but added as an edge case and to update components
+        await ctx.ct.aaveLeverageModule.lever(
+          btcIndex.address,
+          dai.address,
+          btc.address,
+          ether(0.1),
+          0,
+          UNISWAP_INTEGRATION,
+          "0x"
+        );
+        
+        await aBtcTracker.push(btcIndex.address);
+        await btcTracker.push(alice.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(btcIndex.address, quantity, alice.address);
+        await aBtcTracker.push(btcIndex.address);
+        await btcTracker.push(alice.address);
+
+        expect(btcTracker.lastEarned(alice.address)).to.be.approx(expectedEquityAmount);
+        expect(aBtcTracker.lastSpent(btcIndex.address)).to.be.approx(expectedEquityAmount);
+      });
+
+      it("Redeemig levBtc -- lev3x token with btc base", async function () {
+        let quantity = ether(0.1);  // 
+        let expectedEquityAmount = bitcoin(0.1);
+        await btc.connect(alice.wallet).approve(ctx.ct.issuanceModule.address, quantity);  // ∵ 
+
+        await aBtcTracker.push(btcIndex.address);
+        await btcTracker.push(alice.address);
+        
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(btcIndex.address, quantity, alice.address);
+
+        await ctx.ct.aaveLeverageModule.lever(
+          btcIndex.address,
+          dai.address,
+          btc.address,
+          ether(8000),
+          0,
+          UNISWAP_INTEGRATION,
+          "0x"
+        );
+        
+        await aBtcTracker.push(btcIndex.address);
+        await btcTracker.push(alice.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(btcIndex.address, quantity, alice.address);
+        await aBtcTracker.push(btcIndex.address);
+        await btcTracker.push(alice.address);
+
+        expect(btcTracker.lastEarned(alice.address)).to.be.approx(expectedEquityAmount);
+        expect(aBtcTracker.lastSpent(btcIndex.address)).to.be.approx(bitcoin(0.18));
+      });
+
+      it("Redeemig levBtc after a delever -- lev3x token with btc base", async function () {
+        let quantity = ether(0.1);  // 
+        let expectedEquityAmount = bitcoin(0.1);
+        await btc.connect(alice.wallet).approve(ctx.ct.issuanceModule.address, quantity);  // ∵ 
+
+        await aBtcTracker.push(btcIndex.address);
+        await btcTracker.push(alice.address);
+        
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(btcIndex.address, quantity, alice.address);
+
+        await ctx.ct.aaveLeverageModule.lever(
+          btcIndex.address,
+          dai.address,
+          btc.address,
+          ether(8000),
+          0,
+          UNISWAP_INTEGRATION,
+          "0x"
+        );
+        await ctx.ct.aaveLeverageModule.delever(
+          btcIndex.address,
+          btc.address,
+          dai.address,
+          bitcoin(0.78),
+          0,
+          UNISWAP_INTEGRATION,
+          "0x"
+        );
+        
+        await aBtcTracker.push(btcIndex.address);
+        await btcTracker.push(alice.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(btcIndex.address, quantity, alice.address);
+        await aBtcTracker.push(btcIndex.address);
+        await btcTracker.push(alice.address);
+
+        expect(btcTracker.lastEarned(alice.address)).to.be.approx(expectedEquityAmount);
+        expect(aBtcTracker.lastSpent(btcIndex.address)).to.be.approx(expectedEquityAmount);
+      });
+
+
+
+    });
+
+    describe("Issue/Redeem for other token quotes", async function() {
+      let btcIndex: SetToken;  // usdc base
+      let btc: StandardTokenMock;
+      let aBtc: any;
+      let btcTracker: BalanceTracker ;
+      let aBtcTracker: BalanceTracker;
+      let usdc: StandardTokenMock;
+      beforeEach ("",  async function(){
+        await ctx.createLevBtcIndex(ctx.tokens.usdc);
+        btcIndex = ctx.sets[ctx.sets.length-1];
+        btc = ctx.tokens.btc;
+        usdc = ctx.tokens.usdc;
+        aBtc = ctx.aTokens.aBtc;
+        btcTracker = new BalanceTracker(btc);
+        aBtcTracker = new BalanceTracker(aBtc);
+
+
+        await ctx.tokens.usdc.approve(ctx.aaveFixture.lendingPool.address, MAX_UINT_256);
+
+        await ctx.aaveFixture.lendingPool.deposit(
+          ctx.tokens.usdc.address,
+          usdcUnit(1000),
+          ctx.accounts.owner.address,
+          ZERO
+        );
+        
+        await btc.transfer(alice.address, bitcoin(10));
+      }) ;
+ 
+
+      it("Redeemig levBtc after a delever against usdc -- usdc as borrow asset ", async function () {
+        let quantity = ether(0.1);  // 
+        let expectedEquityAmount = bitcoin(0.1);
+        await btc.connect(alice.wallet).approve(ctx.ct.issuanceModule.address, quantity);  // ∵ 
+
+        await aBtcTracker.push(btcIndex.address);
+        await btcTracker.push(alice.address);
+        
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(btcIndex.address, quantity, alice.address);
+
+        await ctx.ct.aaveLeverageModule.lever(
+          btcIndex.address,
+          usdc.address,
+          btc.address,
+          usdcUnit(8000),
+          0,
+          UNISWAP_INTEGRATION,
+          "0x"
+        );
+        await ctx.ct.aaveLeverageModule.delever(
+          btcIndex.address,
+          btc.address,
+          usdc.address,
+          bitcoin(0.78),
+          0,
+          UNISWAP_INTEGRATION,
+          "0x"
+        );
+        
+        await aBtcTracker.push(btcIndex.address);
+        await btcTracker.push(alice.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(btcIndex.address, quantity, alice.address);
+        await aBtcTracker.push(btcIndex.address);
+        await btcTracker.push(alice.address);
+
+        expect(btcTracker.lastEarned(alice.address)).to.be.approx(expectedEquityAmount);
+        expect(aBtcTracker.lastSpent(btcIndex.address)).to.be.approx(expectedEquityAmount);
+      });
+
+      it("Redeemig levBtc -- lev3x token with btc base", async function () {
+        let quantity = ether(0.1);  // 
+        let expectedEquityAmount = bitcoin(0.1);
+        await btc.connect(alice.wallet).approve(ctx.ct.issuanceModule.address, quantity);  // ∵ 
+
+        await aBtcTracker.push(btcIndex.address);
+        await btcTracker.push(alice.address);
+        
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(btcIndex.address, quantity, alice.address);
+
+        await ctx.ct.aaveLeverageModule.lever(
+          btcIndex.address,
+          usdc.address,
+          btc.address,
+          usdcUnit(8000),
+          0,
+          UNISWAP_INTEGRATION,
+          "0x"
+        );
+        
+        await aBtcTracker.push(btcIndex.address);
+        await btcTracker.push(alice.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(btcIndex.address, quantity, alice.address);
+        await aBtcTracker.push(btcIndex.address);
+        await btcTracker.push(alice.address);
+
+        expect(btcTracker.lastEarned(alice.address)).to.be.approx(expectedEquityAmount);
+        expect(aBtcTracker.lastSpent(btcIndex.address)).to.be.approx(bitcoin(0.18));
+      });
+    });
+    describe("Issue/Redeem for bear token ", async function() {
+      //FIXME: work here
     });
 });

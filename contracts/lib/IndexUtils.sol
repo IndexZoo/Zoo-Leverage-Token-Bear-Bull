@@ -35,6 +35,7 @@ import { ILendingPool } from "@setprotocol/set-protocol-v2/contracts/interfaces/
 import { ILendingPoolAddressesProvider } from "@setprotocol/set-protocol-v2/contracts/interfaces/external/aave-v2/ILendingPoolAddressesProvider.sol";
 import { IVariableDebtToken } from "@setprotocol/set-protocol-v2/contracts/interfaces/external/aave-v2/IVariableDebtToken.sol";
 import { IAToken } from "@setprotocol/set-protocol-v2/contracts/interfaces/external/aave-v2/IAToken.sol";
+import {console} from "hardhat/console.sol";
 
 /**
  * @title IndexUtils 
@@ -109,7 +110,9 @@ library IndexUtils {
         IPriceOracleGetter priceOracle = IPriceOracleGetter(_lendingPoolAddressesProvider.getPriceOracle());
         uint256 absDebt = _totalDebtETH
                     .preciseDivCeil(priceOracle.getAssetPrice(components[1]))
-                    .preciseMul(getUnitOf(IERC20(components[0])));
+                    .preciseMul(getUnitOf(IERC20(components[1])));
+        
+        // debt calculated in Collateral 
         _debt = getSwapAmountIn(
             _router,
             absDebt, 
@@ -153,6 +156,11 @@ library IndexUtils {
         uint256 debtInBorrowAsset = getDebtAmount(_lendingPoolAddressesProvider, address(_setToken), borrowAsset); 
         ltv = 1 ether * ltv / 10000;
         _withdrawable = totalCollateralETH.sub(_totalDebtETH.preciseDivCeil(ltv)).preciseDiv(_setToken.totalSupply());
+        _withdrawable = _withdrawable.preciseDiv(
+            assetPriceInETH(_setToken, _lendingPoolAddressesProvider, AssetType.COLLATERAL)
+        );
+        _withdrawable = _withdrawable.preciseMul(getUnitOf(IERC20(collateralAsset)));       
+
 
 
         _totalDebtETH =  getSwapAmountIn(
@@ -163,11 +171,13 @@ library IndexUtils {
         ); 
 
         _repayAmount = _totalDebtETH.preciseDiv(_setToken.totalSupply()) >= _withdrawable? _withdrawable:_totalDebtETH.preciseDivCeil(_setToken.totalSupply());
+        // FIXME: repayAmount zeroed
         
-        _repayAmount = _repayAmount.preciseDiv(
-            assetPriceInETH(_setToken, _lendingPoolAddressesProvider, AssetType.COLLATERAL)
-        );
-        _repayAmount = _repayAmount.preciseMul(getUnitOf(IERC20(collateralAsset)));
+        // _repayAmount = _repayAmount.preciseDiv(
+        //     assetPriceInETH(_setToken, _lendingPoolAddressesProvider, AssetType.COLLATERAL)
+        // );
+        // console.log(_repayAmount);
+        // _repayAmount = _repayAmount.preciseMul(getUnitOf(IERC20(collateralAsset)));
     }
 
     /* ========== Lending Protocol ========= */
