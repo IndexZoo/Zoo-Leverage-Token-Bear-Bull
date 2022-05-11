@@ -1,16 +1,14 @@
 # Dev Phase Notes
 ## TODO
-        // TODO: work on other tokens other decimals (usdc / btc) -> bear tokens
-        // TODO: validate price uniswap synced with oracle on redeem and issue
-        // TODO: Disallow borrowing any different quoteToken
         
-        // TODO: some tests for lose|win
-        // TODO: Example test with changing lev
         // TODO: tests for essential events emitted
         
         // TODO: time advance for checking borrow fees
         // TODO: streamfees
         // TODO: Rebalance
+        
+        // validate price uniswap synced with oracle on redeem and issue
+
 
 // Notes: 
 // In order to repay debt check withdrawable > debt`

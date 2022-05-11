@@ -73,7 +73,7 @@ describe("Testing Issuance with Aaveleverage", function () {
         await ctx.aTokens.aWeth.connect(bob.wallet).approve(ctx.ct.issuanceModule.address, quantity);
 
         await aaveLender.connect(bob.wallet).deposit(weth.address, quantity, bob.address, 0);
-        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantity, bob.address);
+        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantity, bob.address, MAX_UINT_256);
 
         expect(await zToken.getDefaultPositionRealUnit(ctx.aTokens.aWeth.address)).to.be.eq(positionUnit);
 
@@ -115,7 +115,7 @@ describe("Testing Issuance with Aaveleverage", function () {
         await weth.connect(bob.wallet).approve(ctx.ct.issuanceModule.address, quantity);
 
         await aWethTracker.push(zToken.address);
-        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantity, bob.address);
+        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantity, bob.address, MAX_UINT_256);
         await aWethTracker.push(zToken.address);
         expect(aWethTracker.lastEarned(zToken.address)).to.be.eq(quantity);
         
@@ -130,7 +130,7 @@ describe("Testing Issuance with Aaveleverage", function () {
         );
         await aWethTracker.push(zToken.address);
         await wethTracker.push(bob.address);
-        await ctx.ct.issuanceModule.connect(bob.wallet).redeem(zToken.address, redeemable, bob.address);
+        await ctx.ct.issuanceModule.connect(bob.wallet).redeem(zToken.address, redeemable, bob.address, ZERO);
         await aWethTracker.push(zToken.address);
         await wethTracker.push(bob.address);
         
@@ -149,7 +149,7 @@ describe("Testing Issuance with Aaveleverage", function () {
         await weth.connect(bob.wallet).approve(ctx.ct.issuanceModule.address, quantity);
 
         await aWethTracker.push(zToken.address);
-        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantity, bob.address);
+        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantity, bob.address, MAX_UINT_256);
         await aWethTracker.push(zToken.address);
         expect(aWethTracker.lastEarned(zToken.address)).to.be.eq(quantity);
         
@@ -164,7 +164,7 @@ describe("Testing Issuance with Aaveleverage", function () {
         );
         await aWethTracker.push(zToken.address);
         await wethTracker.push(bob.address);
-        await ctx.ct.issuanceModule.connect(bob.wallet).redeem(zToken.address, redeemable, bob.address);
+        await ctx.ct.issuanceModule.connect(bob.wallet).redeem(zToken.address, redeemable, bob.address, ZERO);
         await aWethTracker.push(zToken.address);
         await wethTracker.push(bob.address);
         
@@ -186,7 +186,7 @@ describe("Testing Issuance with Aaveleverage", function () {
         await weth.connect(bob.wallet).approve(ctx.ct.issuanceModule.address, quantity);
 
         await aWethTracker.push(zToken.address);
-        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantity, bob.address);
+        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantity, bob.address, MAX_UINT_256);
         await aWethTracker.push(zToken.address);
         expect(aWethTracker.lastEarned(zToken.address)).to.be.eq(quantity);
         
@@ -205,7 +205,7 @@ describe("Testing Issuance with Aaveleverage", function () {
         expect(await zToken.balanceOf(bob.address)).to.be.eq(quantity);
 
         await wethTracker.push(bob.address);
-        await ctx.ct.issuanceModule.connect(bob.wallet).redeem(zToken.address, redeemable, bob.address);
+        await ctx.ct.issuanceModule.connect(bob.wallet).redeem(zToken.address, redeemable, bob.address, ZERO);
         await aWethTracker.push(zToken.address);
         await wethTracker.push(bob.address);
         
@@ -224,7 +224,7 @@ describe("Testing Issuance with Aaveleverage", function () {
         await weth.connect(bob.wallet).approve(ctx.ct.issuanceModule.address, quantity);
 
         await aWethTracker.push(zToken.address);
-        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantity, bob.address);
+        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantity, bob.address, MAX_UINT_256);
         await aWethTracker.push(zToken.address);
         expect(aWethTracker.lastEarned(zToken.address)).to.be.eq(quantity);
         
@@ -252,7 +252,7 @@ describe("Testing Issuance with Aaveleverage", function () {
         expect(await zToken.balanceOf(bob.address)).to.be.eq(quantity);
 
         await wethTracker.push(bob.address);
-        await ctx.ct.issuanceModule.connect(bob.wallet).redeem(zToken.address, redeemable, bob.address);
+        await ctx.ct.issuanceModule.connect(bob.wallet).redeem(zToken.address, redeemable, bob.address, ZERO);
         await aWethTracker.push(zToken.address);
         await wethTracker.push(bob.address);
         
@@ -269,7 +269,7 @@ describe("Testing Issuance with Aaveleverage", function () {
         await weth.connect(bob.wallet).approve(ctx.ct.issuanceModule.address, quantity);
 
         await aWethTracker.push(zToken.address);
-        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantity, bob.address);
+        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantity, bob.address, MAX_UINT_256);
         await aWethTracker.push(zToken.address);
         await ctx.ct.aaveLeverageModule.lever(
           zToken.address,
@@ -283,7 +283,7 @@ describe("Testing Issuance with Aaveleverage", function () {
         await aWethTracker.push(zToken.address);
 
         await wethTracker.push(bob.address);
-        await ctx.ct.issuanceModule.connect(bob.wallet).redeem(zToken.address, quantity, bob.address);
+        await ctx.ct.issuanceModule.connect(bob.wallet).redeem(zToken.address, quantity, bob.address, ZERO);
         await wethTracker.push(bob.address);
         await aWethTracker.push(zToken.address);
         expect(aWethTracker.lastSpent(zToken.address)).to.be.approx(preciseMul(quantity, ether(1.8)));
@@ -307,8 +307,8 @@ describe("Testing Issuance with Aaveleverage", function () {
         await weth.connect(alice.wallet).approve(ctx.ct.issuanceModule.address, quantityA);
 
         await aWethTracker.push(zToken.address);
-        await ctx.ct.issuanceModule.connect(alice.wallet).issue(zToken.address, quantityA, alice.address);
-        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantityB, bob.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(zToken.address, quantityA, alice.address, MAX_UINT_256);
+        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantityB, bob.address, MAX_UINT_256);
         await aWethTracker.push(zToken.address);
         expect(aWethTracker.lastEarned(zToken.address)).to.be.eq(quantityB.add(quantityA));
         
@@ -329,8 +329,8 @@ describe("Testing Issuance with Aaveleverage", function () {
         expect(await zToken.balanceOf(alice.address)).to.be.eq(quantityA);
 
         await wethTracker.pushMultiple([bob.address, alice.address]);
-        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(zToken.address, redeemableA, alice.address);
-        await ctx.ct.issuanceModule.connect(bob.wallet).redeem(zToken.address, redeemableB, bob.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(zToken.address, redeemableA, alice.address, ZERO);
+        await ctx.ct.issuanceModule.connect(bob.wallet).redeem(zToken.address, redeemableB, bob.address, ZERO);
         await aWethTracker.push(zToken.address);
         await wethTracker.pushMultiple([bob.address, alice.address]);
         
@@ -353,9 +353,9 @@ describe("Testing Issuance with Aaveleverage", function () {
         await weth.approve(ctx.ct.issuanceModule.address, quantities[2]);
 
         await aWethTracker.push(zToken.address);
-        await ctx.ct.issuanceModule.connect(alice.wallet).issue(zToken.address, quantities[0], alice.address);
-        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantities[1], bob.address);
-        await ctx.ct.issuanceModule.issue(zToken.address, quantities[2], owner.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(zToken.address, quantities[0], alice.address, MAX_UINT_256);
+        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantities[1], bob.address, MAX_UINT_256);
+        await ctx.ct.issuanceModule.issue(zToken.address, quantities[2], owner.address, MAX_UINT_256);
         await aWethTracker.push(zToken.address);
 
         let leverParams = [
@@ -386,11 +386,11 @@ describe("Testing Issuance with Aaveleverage", function () {
         expect(await zToken.balanceOf(alice.address)).to.be.eq(quantities[0]);
 
         await wethTracker.pushMultiple([bob.address, alice.address, owner.address]);
-        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(zToken.address, redeemables[0], alice.address);
-        await ctx.ct.issuanceModule.connect(bob.wallet).redeem(zToken.address, redeemables[1], bob.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(zToken.address, redeemables[0], alice.address, ZERO);
+        await ctx.ct.issuanceModule.connect(bob.wallet).redeem(zToken.address, redeemables[1], bob.address, ZERO);
 
         // this took 16 loops in for-loop to delever
-        await ctx.ct.issuanceModule.connect(owner.wallet).redeem(zToken.address, redeemables[2], owner.address);
+        await ctx.ct.issuanceModule.connect(owner.wallet).redeem(zToken.address, redeemables[2], owner.address, ZERO);
         await aWethTracker.push(zToken.address);
         await wethTracker.pushMultiple([bob.address, alice.address, owner.address]);
         
@@ -417,7 +417,7 @@ describe("Testing Issuance with Aaveleverage", function () {
         await aWethTracker.push(zToken.address);
         await wethTracker.push(alice.address);
         
-        await ctx.ct.issuanceModule.connect(alice.wallet).issue(zToken.address, quantity1, alice.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(zToken.address, quantity1, alice.address, MAX_UINT_256);
         
         await aWethTracker.push(zToken.address);
         await wethTracker.push(alice.address);
@@ -451,11 +451,11 @@ describe("Testing Issuance with Aaveleverage", function () {
 
         await aWethTracker.push(zToken.address);
         await wethTracker.push(alice.address);
-        await ctx.ct.issuanceModule.connect(alice.wallet).issue(zToken.address, quantity2, alice.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(zToken.address, quantity2, alice.address, MAX_UINT_256);
         await wethTracker.push(alice.address);
         let issueCost = wethTracker.lastSpent(alice.address);
 
-        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(zToken.address, quantity2.add(quantity1), alice.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(zToken.address, quantity2.add(quantity1), alice.address, ZERO);
         await wethTracker.push(alice.address);
 
         let wethRedeemed = wethTracker.lastEarned(alice.address);   // 
@@ -476,7 +476,7 @@ describe("Testing Issuance with Aaveleverage", function () {
         await aWethTracker.push(zToken.address);
         await wethTracker.push(alice.address);
         
-        await ctx.ct.issuanceModule.connect(alice.wallet).issue(zToken.address, quantity1, alice.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(zToken.address, quantity1, alice.address, MAX_UINT_256);
         
         await aWethTracker.push(zToken.address);
         await wethTracker.push(alice.address);
@@ -510,10 +510,10 @@ describe("Testing Issuance with Aaveleverage", function () {
 
         await aWethTracker.push(zToken.address);
         await wethTracker.push(alice.address);
-        await ctx.ct.issuanceModule.connect(alice.wallet).issue(zToken.address, quantity2, alice.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(zToken.address, quantity2, alice.address, MAX_UINT_256);
         await wethTracker.push(alice.address);
         let issueCost = wethTracker.lastSpent(alice.address);
-        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(zToken.address, quantity2.add(quantity1), alice.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(zToken.address, quantity2.add(quantity1), alice.address, ZERO);
         await wethTracker.push(alice.address);
 
         let wethRedeemed = wethTracker.lastEarned(alice.address);   // 26932481526926299;
@@ -538,7 +538,7 @@ describe("Testing Issuance with Aaveleverage", function () {
         await aWethTracker.push(zToken.address);
         await wethTracker.push(alice.address);
         
-        await ctx.ct.issuanceModule.connect(alice.wallet).issue(zToken.address, quantity1, alice.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(zToken.address, quantity1, alice.address, MAX_UINT_256);
         
         await aWethTracker.push(zToken.address);
         await wethTracker.push(alice.address);
@@ -562,10 +562,10 @@ describe("Testing Issuance with Aaveleverage", function () {
 
         await aWethTracker.push(zToken.address);
         await wethTracker.push(alice.address);
-        await ctx.ct.issuanceModule.connect(alice.wallet).issue(zToken.address, quantity2, alice.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(zToken.address, quantity2, alice.address, MAX_UINT_256);
         await wethTracker.push(alice.address);
         let issueCost = wethTracker.lastSpent(alice.address);
-        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(zToken.address, quantity2.add(quantity1), alice.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(zToken.address, quantity2.add(quantity1), alice.address, ZERO);
         await wethTracker.push(alice.address);
 
         let wethRedeemed = wethTracker.lastEarned(alice.address);   // ;
@@ -606,7 +606,7 @@ describe("Testing Issuance with Aaveleverage", function () {
         await aBtcTracker.push(btcIndex.address);
         await btcTracker.push(alice.address);
         
-        await ctx.ct.issuanceModule.connect(alice.wallet).issue(btcIndex.address, quantity, alice.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(btcIndex.address, quantity, alice.address, MAX_UINT_256);
         
         await aBtcTracker.push(btcIndex.address);
         await btcTracker.push(alice.address);
@@ -623,7 +623,7 @@ describe("Testing Issuance with Aaveleverage", function () {
         await aBtcTracker.push(btcIndex.address);
         await btcTracker.push(alice.address);
         
-        await ctx.ct.issuanceModule.connect(alice.wallet).issue(btcIndex.address, quantity, alice.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(btcIndex.address, quantity, alice.address, MAX_UINT_256);
 
         // That leverage is effectively nil but added as an edge case and to update components
         await ctx.ct.aaveLeverageModule.lever(
@@ -638,7 +638,7 @@ describe("Testing Issuance with Aaveleverage", function () {
         
         await aBtcTracker.push(btcIndex.address);
         await btcTracker.push(alice.address);
-        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(btcIndex.address, quantity, alice.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(btcIndex.address, quantity, alice.address, ZERO);
         await aBtcTracker.push(btcIndex.address);
         await btcTracker.push(alice.address);
 
@@ -654,7 +654,7 @@ describe("Testing Issuance with Aaveleverage", function () {
         await aBtcTracker.push(btcIndex.address);
         await btcTracker.push(alice.address);
         
-        await ctx.ct.issuanceModule.connect(alice.wallet).issue(btcIndex.address, quantity, alice.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(btcIndex.address, quantity, alice.address, MAX_UINT_256);
 
         await ctx.ct.aaveLeverageModule.lever(
           btcIndex.address,
@@ -668,7 +668,7 @@ describe("Testing Issuance with Aaveleverage", function () {
         
         await aBtcTracker.push(btcIndex.address);
         await btcTracker.push(alice.address);
-        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(btcIndex.address, quantity, alice.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(btcIndex.address, quantity, alice.address, ZERO);
         await aBtcTracker.push(btcIndex.address);
         await btcTracker.push(alice.address);
 
@@ -684,7 +684,7 @@ describe("Testing Issuance with Aaveleverage", function () {
         await aBtcTracker.push(btcIndex.address);
         await btcTracker.push(alice.address);
         
-        await ctx.ct.issuanceModule.connect(alice.wallet).issue(btcIndex.address, quantity, alice.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(btcIndex.address, quantity, alice.address, MAX_UINT_256);
 
         await ctx.ct.aaveLeverageModule.lever(
           btcIndex.address,
@@ -707,7 +707,7 @@ describe("Testing Issuance with Aaveleverage", function () {
         
         await aBtcTracker.push(btcIndex.address);
         await btcTracker.push(alice.address);
-        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(btcIndex.address, quantity, alice.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(btcIndex.address, quantity, alice.address, ZERO);
         await aBtcTracker.push(btcIndex.address);
         await btcTracker.push(alice.address);
 
@@ -757,7 +757,7 @@ describe("Testing Issuance with Aaveleverage", function () {
         await aBtcTracker.push(btcIndex.address);
         await btcTracker.push(alice.address);
         
-        await ctx.ct.issuanceModule.connect(alice.wallet).issue(btcIndex.address, quantity, alice.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(btcIndex.address, quantity, alice.address, MAX_UINT_256);
 
         await ctx.ct.aaveLeverageModule.lever(
           btcIndex.address,
@@ -780,7 +780,7 @@ describe("Testing Issuance with Aaveleverage", function () {
         
         await aBtcTracker.push(btcIndex.address);
         await btcTracker.push(alice.address);
-        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(btcIndex.address, quantity, alice.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(btcIndex.address, quantity, alice.address, ZERO);
         await aBtcTracker.push(btcIndex.address);
         await btcTracker.push(alice.address);
 
@@ -796,7 +796,7 @@ describe("Testing Issuance with Aaveleverage", function () {
         await aBtcTracker.push(btcIndex.address);
         await btcTracker.push(alice.address);
         
-        await ctx.ct.issuanceModule.connect(alice.wallet).issue(btcIndex.address, quantity, alice.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(btcIndex.address, quantity, alice.address, MAX_UINT_256);
 
         await ctx.ct.aaveLeverageModule.lever(
           btcIndex.address,
@@ -810,7 +810,7 @@ describe("Testing Issuance with Aaveleverage", function () {
         
         await aBtcTracker.push(btcIndex.address);
         await btcTracker.push(alice.address);
-        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(btcIndex.address, quantity, alice.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(btcIndex.address, quantity, alice.address, ZERO);
         await aBtcTracker.push(btcIndex.address);
         await btcTracker.push(alice.address);
 
@@ -819,6 +819,82 @@ describe("Testing Issuance with Aaveleverage", function () {
       });
     });
     describe("Issue/Redeem for bear token ", async function() {
-      //FIXME: work here
+      let bearIndex: SetToken;  // usdc base
+      let btc: StandardTokenMock;
+      let aBtc: any;
+      let usdcTracker: BalanceTracker ;
+      let aUsdcTracker: BalanceTracker;
+      let usdc: StandardTokenMock;
+      let aUsdc: any;
+      beforeEach ("",  async function(){
+        await ctx.createBearIndex(ctx.tokens.btc);
+        bearIndex = ctx.sets[ctx.sets.length-1];
+        btc = ctx.tokens.btc;
+        usdc = ctx.tokens.usdc;
+        aUsdc = ctx.aTokens.aUsdc;
+        usdcTracker = new BalanceTracker(usdc);
+        aUsdcTracker = new BalanceTracker(aUsdc);
+
+        await ctx.tokens.btc.approve(ctx.aaveFixture.lendingPool.address, MAX_UINT_256);
+
+        await ctx.aaveFixture.lendingPool.deposit(
+          ctx.tokens.btc.address,
+          bitcoin(20),
+          ctx.accounts.owner.address,
+          ZERO
+        );
+        
+        await usdc.transfer(alice.address, usdcUnit(10000));
+      }) ;
+      
+      it("Issue bearBtc -- lev3x token with usdc as collateral and btc as borrow", async function () {
+        let quantity = ether(1000);  // 
+        let expectedEquityAmount = usdcUnit(1000);
+        await usdc.connect(alice.wallet).approve(ctx.ct.issuanceModule.address, quantity);  // ∵ 
+
+        await aUsdcTracker.push(bearIndex.address);
+        await usdcTracker.push(alice.address);
+        
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(bearIndex.address, quantity, alice.address, MAX_UINT_256);
+
+        await aUsdcTracker.push(bearIndex.address);
+        await usdcTracker.push(alice.address);
+
+        expect(aUsdcTracker.lastEarned(bearIndex.address)).to.be.eq(expectedEquityAmount);
+        expect(usdcTracker.lastSpent(alice.address)).to.be.eq(expectedEquityAmount);
+      });
+
+      it("Issue bearBtc -- lev3x token with btc base", async function () {
+        let quantity = ether(1000);  // 
+        let expectedEquityAmount = usdcUnit(1000);
+        await usdc.connect(alice.wallet).approve(ctx.ct.issuanceModule.address, quantity);  // ∵ 
+
+        await aUsdcTracker.push(bearIndex.address);
+        await usdcTracker.push(alice.address);
+        
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(bearIndex.address, quantity, alice.address, MAX_UINT_256);
+
+        await aUsdcTracker.push(bearIndex.address);
+        await usdcTracker.push(alice.address);
+
+        await ctx.ct.aaveLeverageModule.lever(
+          bearIndex.address,
+          btc.address,
+          usdc.address,
+          bitcoin(0.8).div(10000),  // borrow 0.00008 btc for each 1 usdc
+          0,
+          UNISWAP_INTEGRATION,
+          "0x"
+        );
+        
+        await aUsdcTracker.push(bearIndex.address);
+        await usdcTracker.push(alice.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(bearIndex.address, quantity, alice.address, ZERO);
+        await aUsdcTracker.push(bearIndex.address);
+        await usdcTracker.push(alice.address);
+
+        expect(usdcTracker.lastEarned(alice.address)).to.be.approx(expectedEquityAmount);
+        expect(aUsdcTracker.lastSpent(bearIndex.address)).to.be.approx(usdcUnit(1800));
+      });
     });
 });

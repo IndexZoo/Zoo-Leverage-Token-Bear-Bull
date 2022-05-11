@@ -129,15 +129,17 @@ library IndexUtils {
         ISetToken _setToken,
         ILendingPoolAddressesProvider _lendingPoolAddressesProvider,
         IUniswapV2Router _router,
+        address _repayAsset,
         uint256 _setTokenQuantity
     )
     external 
     view
-    returns (uint256 _units, uint256 _repayAmount, uint256 _withdrawable, uint256 _totalDebtETH) 
+    returns (uint256 _repayAmount, uint256 _withdrawable, uint256 _totalDebtETH) 
     {
+        uint256 _units;
         uint256 totalCollateralETH;
         address collateralAsset = _setToken.getComponents()[0];
-        address borrowAsset = _setToken.getComponents()[1];
+        // address borrowAsset = _setToken.getComponents()[1];
         uint256 ltv; 
 
         (
@@ -145,15 +147,16 @@ library IndexUtils {
             _totalDebtETH,
             ,, ltv,
         ) = ILendingPool(_lendingPoolAddressesProvider.getLendingPool()).getUserAccountData(address(_setToken));
+        // TODO: remove units
         
         // units redeemed according to collateral/debt proportion
         // updating units because the deviation between dex & oracle prices might cause increase for (c - d) which is anamolous
         _units = (totalCollateralETH.sub(_totalDebtETH)).preciseDivCeil(_setToken.totalSupply()).preciseMulCeil(_setTokenQuantity);
         _units = _units.preciseDivCeil(_setToken.totalSupply());   // 
         // TODO: TODO: convert totalDebtETH to be amount out of Uniswap
-        if(_totalDebtETH == 0)  return (_units, 0, totalCollateralETH, 0);
+        if(_totalDebtETH == 0)  return (0, totalCollateralETH, 0);
 
-        uint256 debtInBorrowAsset = getDebtAmount(_lendingPoolAddressesProvider, address(_setToken), borrowAsset); 
+        uint256 debtInBorrowAsset = getDebtAmount(_lendingPoolAddressesProvider, address(_setToken), _repayAsset); 
         ltv = 1 ether * ltv / 10000;
         _withdrawable = totalCollateralETH.sub(_totalDebtETH.preciseDivCeil(ltv)).preciseDiv(_setToken.totalSupply());
         _withdrawable = _withdrawable.preciseDiv(
@@ -167,7 +170,7 @@ library IndexUtils {
             _router,
             debtInBorrowAsset,
             IAToken(collateralAsset).UNDERLYING_ASSET_ADDRESS(),
-            borrowAsset
+            _repayAsset 
         ); 
 
         _repayAmount = _totalDebtETH.preciseDiv(_setToken.totalSupply()) >= _withdrawable? _withdrawable:_totalDebtETH.preciseDivCeil(_setToken.totalSupply());
@@ -176,8 +179,28 @@ library IndexUtils {
         // _repayAmount = _repayAmount.preciseDiv(
         //     assetPriceInETH(_setToken, _lendingPoolAddressesProvider, AssetType.COLLATERAL)
         // );
-        // console.log(_repayAmount);
         // _repayAmount = _repayAmount.preciseMul(getUnitOf(IERC20(collateralAsset)));
+    }
+
+    function calculateRedeemUnits(
+        ISetToken _setToken,
+        ILendingPoolAddressesProvider _lendingPoolAddressesProvider,
+        uint256 _setTokenQuantity
+    )
+    external 
+    view
+    returns (uint256 _units) 
+    {
+        (
+            uint256 totalCollateralETH, 
+            uint256 totalDebtETH,
+            ,,,
+        ) = ILendingPool(_lendingPoolAddressesProvider.getLendingPool()).getUserAccountData(address(_setToken));
+        
+        // units redeemed according to collateral/debt proportion
+        // updating units because the deviation between dex & oracle prices might cause increase for (c - d) which is anamolous
+        _units = (totalCollateralETH.sub(totalDebtETH)).preciseDivCeil(_setToken.totalSupply()).preciseMulCeil(_setTokenQuantity);
+        _units = _units.preciseDivCeil(_setToken.totalSupply());   // 
     }
 
     /* ========== Lending Protocol ========= */

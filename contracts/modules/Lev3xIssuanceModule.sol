@@ -22,7 +22,7 @@ pragma experimental "ABIEncoderV2";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 
-import { DebtIssuanceModule } from "@setprotocol/set-protocol-v2/contracts/protocol/modules/DebtIssuanceModule.sol";
+import { DebtIssuanceModule } from "./DebtIssuanceModule.sol";
 import { IController } from "@setprotocol/set-protocol-v2/contracts/interfaces/IController.sol";
 import { Invoke } from "@setprotocol/set-protocol-v2/contracts/protocol/lib/Invoke.sol";
 import { ISetToken } from "@setprotocol/set-protocol-v2/contracts/interfaces/ISetToken.sol";
@@ -89,11 +89,13 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
      * @param _setToken         Instance of the SetToken to issue
      * @param _quantity         Quantity of SetToken to issue
      * @param _to               Address to mint SetToken to
+     * @param _maxEquityCost    Slippage
      */
     function issue(
         ISetToken _setToken,
         uint256 _quantity,
-        address _to
+        address _to,
+        uint256 _maxEquityCost
     )
         external
         override
@@ -124,6 +126,13 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
 
             uint256 finalSetSupply = initialSetSupply.add(quantityWithFees);
 
+            // Swap tokens for aTokens by depositing onto Lender
+            _preIssueComponents(
+                component, 
+                equityUnit,
+                _maxEquityCost
+            );
+
             // sync()  
             _resolveEquityPositions(_setToken, quantityWithFees, _to, true, component, equityUnit, initialSetSupply, finalSetSupply);
             _resolveFees(_setToken, managerFee, protocolFee);
@@ -149,14 +158,16 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
      * those funds to repay the debts on behalf of the SetToken. All debt will be paid down first then equity positions
      * will be returned to the minting address. If specified, a fee will be charged on redeem.
      *
-     * @param _setToken         Instance of the SetToken to redeem
-     * @param _quantity         Quantity of SetToken to redeem
-     * @param _to               Address to send collateral to
+     * @param _setToken              Instance of the SetToken to redeem
+     * @param _quantity              Quantity of SetToken to redeem
+     * @param _to                    Address to send collateral to
+     * @param _minEquityReceived    Slippage
      */
     function redeem(
         ISetToken _setToken,
         uint256 _quantity,
-        address _to
+        address _to,
+        uint256 _minEquityReceived
     )
         external
         override
@@ -191,9 +202,10 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
             _setToken.burn(msg.sender, _quantity);
 
             // sync()
-            _resolveEquityPositions(_setToken, quantityNetFees, _to, false, component, equityUnit, initialSetSupply, finalSetSupply);
+            uint256 redeemedQuantity = _resolveEquityPositions(_setToken, quantityNetFees, _to, false, component, equityUnit, initialSetSupply, finalSetSupply);
             _resolveFees(_setToken, managerFee, protocolFee);
             // sync()
+            _postRedeemComponents(component, redeemedQuantity, _to, _minEquityReceived); 
         }
 
         emit SetTokenRedeemed(
@@ -204,6 +216,32 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
             managerFee,
             protocolFee
         );
+    }
+
+    /* =========== View Functions ================= */
+
+    /**
+    * Calculates the amount of base (collateral) component needed to collateralize passed issue quantity of Sets that will
+    * be returned to caller. Can also be used to determine how much collateral will be returned on redemption. 
+    *
+    * @param _setToken         Instance of the SetToken to issue
+    * @param _quantity         Amount of Sets to be issued/redeemed
+    * @param _isIssue          Whether Sets are being issued or redeemed
+    *
+    * @return _equityCost      equity notional amounts of component, represented as uint256
+    */
+    function calculateEquityIssuanceCost(
+        ISetToken _setToken,
+        uint256 _quantity,
+        bool _isIssue
+    )
+    external
+    view
+    returns (uint256 _equityCost)
+    {
+        (
+            , _equityCost, 
+        ) = _calculateRequiredComponentIssuanceUnitsV2(_setToken, _quantity, _isIssue);
     }
 
     /* ============ Internal Functions ============ */
@@ -248,12 +286,13 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
         uint256 _finalSetSupply
     )
         internal
+        returns (uint256 )
     {
-        // Swap tokens for aTokens by depositing onto Lender
-        if(_isIssue)  _preIssueComponents(
-            _component, 
-            _componentEquityQuantities
-        );
+        // // Swap tokens for aTokens by depositing onto Lender
+        // if(_isIssue)  _preIssueComponents(
+        //     _component, 
+        //     _componentEquityQuantities
+        // );
             uint256 componentQuantity = _componentEquityQuantities;
             if (componentQuantity > 0) {
                 if (_isIssue) {
@@ -280,8 +319,8 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
 
                     IssuanceValidationUtils.validateCollateralizationPostTransferOut(_setToken, _component, _finalSetSupply);
                 }
-            }
-        if(!_isIssue) _postRedeemComponents(_component, componentQuantity, _to);
+            } 
+            return componentQuantity;
     }
      
     /**
@@ -291,10 +330,12 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
      */
     function _preIssueComponents(
         address _component,
-        uint256 _componentQuantity
+        uint256 _componentQuantity,
+        uint256 _maxEquityCost
     )
     internal
     {
+        require(_componentQuantity <= _maxEquityCost, "amount exceeded slippage");
         ILendingPool lender = ILendingPool(lendingPoolAddressesProvider.getLendingPool()); 
             if (_componentQuantity > 0) {
                     address underlyingAsset = IAToken(_component).UNDERLYING_ASSET_ADDRESS();
@@ -320,7 +361,8 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
     function _postRedeemComponents(
         address _component,
         uint256 _componentQuantity,
-        address _to
+        address _to,
+        uint256 _minEquityReceived
     )
     internal
     {
@@ -332,92 +374,96 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
                 lender.withdraw(underlyingAsset, _componentQuantity, _to);
                 uint256 tokenFinalBalance = IERC20(underlyingAsset).balanceOf(_to);
                 require(
+                    tokenFinalBalance.sub(tokenInitBalance) >= _minEquityReceived,
+                    "amount less than slippage" 
+                );
+                require(
                     tokenFinalBalance.sub(tokenInitBalance) >= _componentQuantity, 
                     "redeem: Withdraw Failed"
                 );
             }
     }
 
-        /**
-        * Calculates the amount of each component needed to collateralize passed issue quantity of Sets as well as amount of debt that will
-        * be returned to caller. Can also be used to determine how much collateral will be returned on redemption as well as how much debt
-        * needs to be paid down to redeem.
-        *
-        * @param _setToken         Instance of the SetToken to issue
-        * @param _quantity         Amount of Sets to be issued/redeemed
-        * @param _isIssue          Whether Sets are being issued or redeemed
-        *
-        * @return address       component addresses making up the Set
-        * @return uint256       equity notional amounts of component, represented as uint256
-        * @return uint256       debt notional amounts of component, represented as uint256
-        */
-        function _calculateRequiredComponentIssuanceUnitsV2(
-            ISetToken _setToken,
-            uint256 _quantity,
-            bool _isIssue
-        )
-            internal
-            view
-            returns (address , uint256 , uint256 )
-        {
-            (
-                address component,
-                uint256 equityUnit,
-                uint256 debtUnit
-            ) = _getTotalIssuanceUnitsV2(_setToken, _isIssue);
+    /**
+    * Calculates the amount of each component needed to collateralize passed issue quantity of Sets as well as amount of debt that will
+    * be returned to caller. Can also be used to determine how much collateral will be returned on redemption as well as how much debt
+    * needs to be paid down to redeem.
+    *
+    * @param _setToken         Instance of the SetToken to issue
+    * @param _quantity         Amount of Sets to be issued/redeemed
+    * @param _isIssue          Whether Sets are being issued or redeemed
+    *
+    * @return address       component addresses making up the Set
+    * @return uint256       equity notional amounts of component, represented as uint256
+    * @return uint256       debt notional amounts of component, represented as uint256
+    */
+    function _calculateRequiredComponentIssuanceUnitsV2(
+        ISetToken _setToken,
+        uint256 _quantity,
+        bool _isIssue
+    )
+    internal
+    view
+    returns (address , uint256 , uint256 )
+    {
+        (
+            address component,
+            uint256 equityUnit,
+            uint256 debtUnit
+        ) = _getTotalIssuanceUnitsV2(_setToken, _isIssue);
 
-            uint256 totalEquityUnit; 
-            uint256 totalDebtUnit ;
-            // Use preciseMulCeil to round up to ensure overcollateration when small issue quantities are provided
-            // and preciseMul to round down to ensure overcollateration when small redeem quantities are provided
-            totalEquityUnit = _isIssue ?
-                    equityUnit.preciseMulCeil(_quantity) :
-                    equityUnit.preciseMul(_quantity);
-            totalDebtUnit = _isIssue ?
-                    debtUnit.preciseMul(_quantity) :
-                    debtUnit.preciseMulCeil(_quantity);
+        uint256 totalEquityUnit; 
+        uint256 totalDebtUnit ;
+        // Use preciseMulCeil to round up to ensure overcollateration when small issue quantities are provided
+        // and preciseMul to round down to ensure overcollateration when small redeem quantities are provided
+        totalEquityUnit = _isIssue ?
+                equityUnit.preciseMulCeil(_quantity) :
+                equityUnit.preciseMul(_quantity);
+        totalDebtUnit = _isIssue ?
+                debtUnit.preciseMul(_quantity) :
+                debtUnit.preciseMulCeil(_quantity);
 
-            return (component, totalEquityUnit, totalDebtUnit);
-        }
+        return (component, totalEquityUnit, totalDebtUnit);
+    }
 
-        /**
-        * TODO: Do better docs here / Explain formulae for issue/redeem
-        * Sums total debt and equity units for each component, taking into account default and external positions.
-        *
-        * @param _setToken         Instance of the SetToken to issue
-        *
-        * @return address        component addresses making up the Set
-        * @return uint256        equity unit amounts of component, represented as uint256
-        * @return uint256        debt unit amounts of component, represented as uint256
-        */
-        function _getTotalIssuanceUnitsV2(
-            ISetToken _setToken,
-            bool _isIssue
-        )
-            internal
-            view
-            returns (address , uint256 , uint256 )
-        {
-            // First asset of components represents the aToken of the baseToken 
-            address[] memory components = _setToken.getComponents();
+    /**
+    * TODO: Do better docs here / Explain formulae for issue/redeem
+    * Sums total debt and equity units for each component, taking into account default and external positions.
+    *
+    * @param _setToken         Instance of the SetToken to issue
+    *
+    * @return address        component addresses making up the Set
+    * @return uint256        equity unit amounts of component, represented as uint256
+    * @return uint256        debt unit amounts of component, represented as uint256
+    */
+    function _getTotalIssuanceUnitsV2(
+        ISetToken _setToken,
+        bool _isIssue
+    )
+        internal
+        view
+        returns (address , uint256 , uint256 )
+    {
+        // First asset of components represents the aToken of the baseToken 
+        address[] memory components = _setToken.getComponents();
 
 
-            // Considering issuing factor for price change (oracle) and leveraging
-            uint256 factor = _setToken.calculateIssuingFactor();
-            (
-                uint256 unitCollateral, 
-                uint256 unitDebt
-            ) = _calculcateUnitsFromTotal(
-                _setToken, 
-                components, 
-                factor, 
-                _isIssue
-            );
+        // Considering issuing factor for price change (oracle) and leveraging
+        uint256 factor = _setToken.calculateIssuingFactor();
+        (
+            uint256 unitCollateral, 
+            uint256 unitDebt
+        ) = _calculcateUnitsFromTotal(
+            _setToken, 
+            components, 
+            factor, 
+            _isIssue
+        );
             
-           uint256 cumulativeEquity =  unitCollateral.sub(unitDebt);
+       uint256 cumulativeEquity =  unitCollateral.sub(unitDebt);
 
-            return (components[0], cumulativeEquity, 0);
-        }
+        return (components[0], cumulativeEquity, 0);
+    }
     function _calculcateUnitsFromTotal(
         ISetToken _setToken,
         address[] memory _components,

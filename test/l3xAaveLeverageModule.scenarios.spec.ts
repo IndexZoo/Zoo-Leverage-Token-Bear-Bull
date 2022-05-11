@@ -10,7 +10,7 @@ import {ether, approx, preciseMul} from "../utils/helpers";
 
 import { Context } from "../utils/test/context";
 import { Account } from "@utils/types";
-import { ADDRESS_ZERO, MAX_INT_256, MAX_UINT_256 } from "../utils/constants";
+import { ADDRESS_ZERO, MAX_INT_256, MAX_UINT_256, ZERO } from "../utils/constants";
 import { StandardTokenMock } from "@typechain/StandardTokenMock";
 import { BalanceTracker } from "../utils/test/BalanceTracker";
 
@@ -19,6 +19,7 @@ import { WETH9 } from "@typechain/WETH9";
 import { BigNumber, ContractTransaction, Wallet } from "ethers";
 import { UniswapV2Router02 } from "@setprotocol/set-protocol-v2/typechain/UniswapV2Router02";
 import { SetToken } from "@typechain/SetToken";
+import {usdc as usdcUnit, bitcoin} from "../utils/common/unitsUtils";
 chai.use(solidity);
 chai.use(approx);
 
@@ -59,7 +60,7 @@ describe("Complex scenarios with Aaveleverage", function () {
         await weth.connect(bob.wallet).approve(ctx.ct.issuanceModule.address, quantities[1].mul(4));
 
         await aWethTracker.push(zToken.address);
-        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantities[1], bob.address);
+        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantities[1], bob.address, MAX_UINT_256);
         await aWethTracker.push(zToken.address);
 
         let leverParams = [
@@ -92,7 +93,7 @@ describe("Complex scenarios with Aaveleverage", function () {
         expect(await zToken.balanceOf(bob.address)).to.be.eq(quantities[1]);
 
         await wethTracker.pushMultiple([bob.address, alice.address, owner.address]);
-        await ctx.ct.issuanceModule.connect(bob.wallet).redeem(zToken.address, redeemables[1], bob.address);
+        await ctx.ct.issuanceModule.connect(bob.wallet).redeem(zToken.address, redeemables[1], bob.address, ZERO);
 
         await aWethTracker.push(zToken.address);
         await wethTracker.pushMultiple([bob.address, alice.address, owner.address]);
@@ -119,9 +120,9 @@ describe("Complex scenarios with Aaveleverage", function () {
         await weth.approve(ctx.ct.issuanceModule.address, quantities[2]);
 
         await aWethTracker.push(zToken.address);
-        await ctx.ct.issuanceModule.connect(alice.wallet).issue(zToken.address, quantities[0], alice.address);
-        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantities[1], bob.address);
-        await ctx.ct.issuanceModule.issue(zToken.address, quantities[2], owner.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(zToken.address, quantities[0], alice.address, MAX_UINT_256);
+        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantities[1], bob.address, MAX_UINT_256);
+        await ctx.ct.issuanceModule.issue(zToken.address, quantities[2], owner.address, MAX_UINT_256);
         await aWethTracker.push(zToken.address);
 
         let leverParams = [
@@ -155,9 +156,9 @@ describe("Complex scenarios with Aaveleverage", function () {
         expect(await zToken.balanceOf(bob.address)).to.be.eq(quantities[1]);
 
         await wethTracker.pushMultiple([bob.address, alice.address, owner.address]);
-        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(zToken.address, redeemables[0], alice.address);
-        await ctx.ct.issuanceModule.connect(bob.wallet).redeem(zToken.address, redeemables[1], bob.address);
-        await ctx.ct.issuanceModule.connect(owner.wallet).redeem(zToken.address, redeemables[2], owner.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(zToken.address, redeemables[0], alice.address, ZERO);
+        await ctx.ct.issuanceModule.connect(bob.wallet).redeem(zToken.address, redeemables[1], bob.address, ZERO);
+        await ctx.ct.issuanceModule.connect(owner.wallet).redeem(zToken.address, redeemables[2], owner.address, ZERO);
         
         await aWethTracker.push(zToken.address);
         await wethTracker.pushMultiple([bob.address, alice.address, owner.address]);
@@ -183,7 +184,7 @@ describe("Complex scenarios with Aaveleverage", function () {
         await weth.connect(bob.wallet).approve(ctx.ct.issuanceModule.address, quantities[1]);
 
         await aWethTracker.push(zToken.address);
-        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantities[1], bob.address);
+        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantities[1], bob.address, MAX_UINT_256);
         await aWethTracker.push(zToken.address);
 
         let leverParams = [
@@ -215,7 +216,7 @@ describe("Complex scenarios with Aaveleverage", function () {
         expect(await zToken.balanceOf(bob.address)).to.be.eq(quantities[1]);
 
         await wethTracker.pushMultiple([bob.address, alice.address, owner.address]);
-        await ctx.ct.issuanceModule.connect(bob.wallet).redeem(zToken.address, redeemables[1], bob.address);
+        await ctx.ct.issuanceModule.connect(bob.wallet).redeem(zToken.address, redeemables[1], bob.address, ZERO);
 
         await aWethTracker.push(zToken.address);
         await wethTracker.pushMultiple([bob.address, alice.address, owner.address]);
@@ -242,7 +243,7 @@ describe("Complex scenarios with Aaveleverage", function () {
         await aWethTracker.push(zToken.address);
         await wethTracker.pushMultiple([bob.address, alice.address, owner.address]);
         
-        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantities[1], bob.address);
+        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantities[1], bob.address, MAX_UINT_256);
         
         await aWethTracker.push(zToken.address);
         await wethTracker.pushMultiple([bob.address, alice.address, owner.address]);
@@ -274,15 +275,15 @@ describe("Complex scenarios with Aaveleverage", function () {
         await aWethTracker.push(zToken.address);
         await wethTracker.pushMultiple([bob.address, alice.address, owner.address]);
         
-        await ctx.ct.issuanceModule.connect(alice.wallet).issue(zToken.address, quantities[0], alice.address);
-        await ctx.ct.issuanceModule.connect(bob.wallet).redeem(zToken.address, redeemables[1], bob.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(zToken.address, quantities[0], alice.address, MAX_UINT_256);
+        await ctx.ct.issuanceModule.connect(bob.wallet).redeem(zToken.address, redeemables[1], bob.address, ZERO);
 
         await aWethTracker.push(zToken.address);
         await wethTracker.pushMultiple([bob.address, alice.address, owner.address]);
         
         let bobRedeem = wethTracker.lastEarned(bob.address);
         let aliceIssue = wethTracker.lastSpent(alice.address);
-        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(zToken.address, redeemables[0], alice.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(zToken.address, redeemables[0], alice.address, ZERO);
         
         await wethTracker.pushMultiple([bob.address, alice.address, owner.address]);
         await aWethTracker.push(zToken.address);
@@ -312,7 +313,7 @@ describe("Complex scenarios with Aaveleverage", function () {
         await aWethTracker.push(zToken.address);
         await wethTracker.pushMultiple([bob.address, alice.address, owner.address]);
         
-        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantities[1], bob.address);
+        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantities[1], bob.address, MAX_UINT_256);
         
         await aWethTracker.push(zToken.address);
         await wethTracker.pushMultiple([bob.address, alice.address, owner.address]);
@@ -343,8 +344,8 @@ describe("Complex scenarios with Aaveleverage", function () {
 
         await aWethTracker.push(zToken.address);
         await wethTracker.pushMultiple([bob.address, alice.address, owner.address]);
-        await ctx.ct.issuanceModule.connect(bob.wallet).redeem(zToken.address, redeemables[1], bob.address);
-        await ctx.ct.issuanceModule.connect(alice.wallet).issue(zToken.address, quantities[0], alice.address);
+        await ctx.ct.issuanceModule.connect(bob.wallet).redeem(zToken.address, redeemables[1], bob.address, ZERO);
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(zToken.address, quantities[0], alice.address, MAX_UINT_256);
 
         await aWethTracker.push(zToken.address);
         await wethTracker.pushMultiple([bob.address, alice.address, owner.address]);
@@ -353,7 +354,7 @@ describe("Complex scenarios with Aaveleverage", function () {
         let aliceIssue = wethTracker.lastSpent(alice.address);        
 
         // Alice is receiving the residue of the LevToken because debt=0 hence swapFactor does not kick in
-        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(zToken.address, redeemables[0], alice.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(zToken.address, redeemables[0], alice.address, ZERO);
         
         await wethTracker.pushMultiple([bob.address, alice.address, owner.address]);
         await aWethTracker.push(zToken.address);
@@ -370,5 +371,181 @@ describe("Complex scenarios with Aaveleverage", function () {
         expect(bobRedeem.mul(1250).div(1000).sub( bobIssue)).to.be.approx(expectedBobProfit);
       });
 
+    });
+
+    describe("Bear tokens", async function () {
+      let bearIndex: SetToken;  // usdc base
+      let btc: StandardTokenMock;
+      let aBtc: any;
+      let usdcTracker: BalanceTracker ;
+      let aUsdcTracker: BalanceTracker;
+      let usdc: StandardTokenMock;
+      let aUsdc: any;
+      beforeEach ("",  async function(){
+        await ctx.createBearIndex(ctx.tokens.btc);
+        bearIndex = ctx.sets[ctx.sets.length-1];
+        btc = ctx.tokens.btc;
+        usdc = ctx.tokens.usdc;
+        aUsdc = ctx.aTokens.aUsdc;
+        usdcTracker = new BalanceTracker(usdc);
+        aUsdcTracker = new BalanceTracker(aUsdc);
+
+        await ctx.tokens.btc.approve(ctx.aaveFixture.lendingPool.address, MAX_UINT_256);
+        await ctx.tokens.btc.approve(ctx.router!.address, MAX_UINT_256);
+        await ctx.tokens.usdc.approve(ctx.router!.address, MAX_UINT_256);
+
+        await ctx.aaveFixture.lendingPool.deposit(
+          ctx.tokens.btc.address,
+          bitcoin(20),
+          ctx.accounts.owner.address,
+          ZERO
+        );
+        
+        await usdc.transfer(alice.address, usdcUnit(10000));
+        await usdc.transfer(bob.address, usdcUnit(10000));
+      }) ;
+      it("1 user issue/redeem Price dip > profit", async function () {
+        let quantity = ether(1000);  // 
+        let expectedEquityAmount = usdcUnit(1000);
+        await usdc.connect(alice.wallet).approve(ctx.ct.issuanceModule.address, quantity);  // ∵ 
+
+        await aUsdcTracker.push(bearIndex.address);
+        await usdcTracker.push(alice.address);
+        
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(bearIndex.address, quantity, alice.address, MAX_UINT_256);
+
+        await aUsdcTracker.push(bearIndex.address);
+        await usdcTracker.push(alice.address);
+
+        await ctx.ct.aaveLeverageModule.lever(
+          bearIndex.address,
+          btc.address,
+          usdc.address,
+          bitcoin(0.8).div(10000),  // borrow 0.00008 btc for each 1 usdc
+          0,
+          UNISWAP_INTEGRATION,
+          "0x"
+        );
+
+        await ctx.aaveFixture.setAssetPriceInOracle(usdc.address, ether(0.001125));  // 0.1 BTC = 1 ETH = 0.001125 usdc 
+        await ctx.changeUniswapPrice(
+          owner, 
+          btc, 
+          usdc, 
+          usdcUnit(8889), 
+          usdcUnit(10000),
+          bitcoin(40),
+          usdcUnit(400000),
+          bitcoin 
+        );
+
+        // verify uniswap pricing is as expected 
+        let usdcAmountOut = (await ctx.router.getAmountsOut(bitcoin(1), [btc.address, usdc.address]))[1];
+        expect(usdcAmountOut).to.be.approx(usdcUnit(8889));
+        
+        await aUsdcTracker.push(bearIndex.address);
+        await usdcTracker.push(alice.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(bearIndex.address, quantity, alice.address, ZERO);
+        await aUsdcTracker.push(bearIndex.address);
+        await usdcTracker.push(alice.address);
+ 
+        // 0.0000125 * 1000 * 0.8 / 0.0001125
+        let expectedAliceProfit = usdcUnit(88);
+
+        expect(usdcTracker.lastEarned(alice.address))
+            .to.be.approx(expectedEquityAmount.add(expectedAliceProfit));
+        expect(aUsdcTracker.lastSpent(bearIndex.address)).to.be.approx(usdcUnit(1800));
+      });
+
+      it("Scenario users issue and redeem after and before leveraging with price change ", async function() {
+        // issue1 -> leverage -> issue2 -> redeem1 -> redeem2
+        let quantities = [ether(2000), ether(1000), ether(1000)];
+        let redeemables = [usdcUnit(2000), usdcUnit(1000), usdcUnit(1000)];  //   
+        await usdc.connect(bob.wallet).approve(ctx.ct.issuanceModule.address, MAX_UINT_256);
+        await usdc.connect(alice.wallet).approve(ctx.ct.issuanceModule.address, MAX_UINT_256);
+
+        await aUsdcTracker.push(bearIndex.address);
+        await usdcTracker.pushMultiple([bob.address, alice.address, owner.address]);
+        
+        await ctx.ct.issuanceModule.connect(bob.wallet).issue(bearIndex.address, quantities[1], bob.address, MAX_UINT_256);
+        
+        await aUsdcTracker.push(bearIndex.address);
+        await usdcTracker.pushMultiple([bob.address, alice.address, owner.address]);
+        let bobIssue = usdcTracker.lastSpent(bob.address);
+
+        let leverParams = [
+          {q: bitcoin(0.8).div(10000), b: usdcUnit(7500).div(10000)},
+          {q: bitcoin(0.620).div(10000), b: usdcUnit(600).div(10000)},
+          {q: bitcoin(0.500).div(10000), b: usdcUnit(4500).div(10000)},
+          {q: bitcoin(0.320).div(10000), b: usdcUnit(3000).div(10000)}
+        ];
+
+        let totalLev = ether(3.24);   // summation of q element + 1 in leverParams
+        
+        for(let param of leverParams) {
+          await ctx.ct.aaveLeverageModule.lever(
+            bearIndex.address,
+            btc.address,
+            usdc.address,
+            param.q,
+            ZERO,
+            UNISWAP_INTEGRATION,
+            "0x"
+          );
+        } 
+        await ctx.aaveFixture.setAssetPriceInOracle(usdc.address, ether(0.001125));  // 1 ETH = 1250 usdc 
+        await ctx.changeUniswapPrice(
+          owner, 
+          btc, 
+          usdc, 
+          usdcUnit(8889), 
+          usdcUnit(10000),
+          bitcoin(40),
+          usdcUnit(400000),
+          bitcoin 
+        );
+        // verify uniswap pricing is as expected 
+        let usdcAmountOut = (await ctx.router.getAmountsOut(bitcoin(1), [btc.address, usdc.address]))[1];
+        expect(usdcAmountOut).to.be.approx(usdcUnit(8889));
+
+        await aUsdcTracker.push(bearIndex.address);
+        await usdcTracker.pushMultiple([bob.address, alice.address, owner.address]);
+        
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(bearIndex.address, quantities[0], alice.address, MAX_UINT_256);
+        await ctx.ct.issuanceModule.connect(bob.wallet).redeem(bearIndex.address, quantities[1], bob.address, ZERO);
+        await aUsdcTracker.push(bearIndex.address);
+        await usdcTracker.pushMultiple([bob.address, alice.address, owner.address]);
+        let bobRedeem = usdcTracker.lastEarned(bob.address);
+        let aliceIssue = usdcTracker.lastSpent(alice.address);
+          
+          // bob redeeming required total deleveraging, hence we do a trivial lever here in order to redeem for alice
+          await ctx.ct.aaveLeverageModule.lever(
+            bearIndex.address,
+            btc.address,
+            usdc.address,
+            1,
+            ZERO,
+            UNISWAP_INTEGRATION,
+            "0x"
+          );
+
+        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(bearIndex.address, quantities[0], alice.address, ZERO);
+        
+        await usdcTracker.pushMultiple([bob.address, alice.address, owner.address]);
+        await aUsdcTracker.push(bearIndex.address);
+        
+        let aliceRedeem = (usdcTracker.lastEarned(alice.address));
+
+        // 0.0000125 * 1000 * 2.24 / 0.0001125
+        let expectedBobProfit = usdcUnit(248);
+
+        expect(await bearIndex.totalSupply()).to.be.eq(ether(0));
+        expect(await bearIndex.balanceOf(bob.address)).to.be.eq(ether(0));
+        expect(await bearIndex.balanceOf(alice.address)).to.be.eq(ether(0));
+
+        expect(await ctx.aTokens.aUsdc.balanceOf(zToken.address)).to.be.lt(BigNumber.from(1000)); //  ~ 0.00000622767
+        expect(bobRedeem).to.be.approx(expectedBobProfit.add(redeemables[1]));
+        expect(aliceIssue).to.be.approx(aliceRedeem);  // 1.3% less redeem due to fees
+      });
     });
 });

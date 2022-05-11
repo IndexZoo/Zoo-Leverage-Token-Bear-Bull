@@ -5,7 +5,7 @@ import { createFixtureLoader, solidity } from "ethereum-waffle";
 import {AaveV2Fixture} from "@setprotocol/set-protocol-v2/dist/utils/fixtures";
 import {AaveV2LendingPool} from "@setprotocol/set-protocol-v2/typechain/AaveV2LendingPool";
 
-import {ether, approx, preciseMul} from "../utils/helpers";
+import {ether, approx, preciseMul, bitcoin} from "../utils/helpers";
 
 import { Context } from "../utils/test/context";
 import { Account } from "@utils/types";
@@ -90,7 +90,7 @@ describe("Various tests: Accessor methods / events emitted / views", function ()
         await weth.connect(alice.wallet).approve(ctx.ct.issuanceModule.address, MAX_UINT_256);  // ∵ 
 
         await aWethTracker.push(zToken.address);
-        await ctx.ct.issuanceModule.connect(alice.wallet).issue(zToken.address, quantity, alice.address);
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(zToken.address, quantity, alice.address, MAX_UINT_256);
         await aWethTracker.push(zToken.address);
       });
       it("Verify non authorized caller cannot access autoLever() even if manager", async function() {
@@ -150,6 +150,67 @@ describe("Various tests: Accessor methods / events emitted / views", function ()
         await expect(subjectDeleverMethod(bob)).to.be.revertedWith(revertString);
       });
       // 
+    });
+    describe("Verify uniqueness of borrow asset", async function(){
+      let subjectLeverMethod: (x: BigNumber, token: StandardTokenMock) => Promise<ContractTransaction>;
+      let subjectDeleverMethod: (x: BigNumber, token: StandardTokenMock | WETH9) => Promise<ContractTransaction>;
+      let quantity: BigNumber;
+      beforeEach ("", async function(){
+        quantity = ether(0.02);
+        subjectLeverMethod = async (
+            x: BigNumber ,
+            token
+          ) =>
+          await ctx.ct.aaveLeverageModule.connect(owner.wallet).lever(
+            zToken.address,
+            token.address,
+            weth.address,
+            x,
+            ether(0),
+            UNISWAP_INTEGRATION,
+            "0x"
+          );
+
+        subjectDeleverMethod = async (
+            x: BigNumber ,
+            token
+          ) =>
+          await ctx.ct.aaveLeverageModule.connect(owner.wallet).delever(
+            zToken.address,
+            weth.address,
+            token.address,
+            x,
+            ether(0),
+            UNISWAP_INTEGRATION,
+            "0x"
+          );
+        await weth.connect(alice.wallet).approve(ctx.ct.issuanceModule.address, MAX_UINT_256);  // ∵ 
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(zToken.address, quantity, alice.address, MAX_UINT_256);
+      });
+      it("Ensure inferior (uninitialized) asset can not be borrowed", async function(){
+        await subjectLeverMethod( ether(800), dai);  
+        await expect(subjectLeverMethod(bitcoin(6).div(10000), ctx.tokens.btc)).to.be.revertedWith("Borrow not enabled");      
+      });
+
+      it("Ensure inferior (uninitialized) asset can not be borrowed", async function(){
+        await expect(subjectLeverMethod(bitcoin(6).div(10000), ctx.tokens.btc)).to.be.revertedWith("Borrow not enabled");      
+      });
+
+      it("Ensure initialized asset can be repaid", async function(){
+        await subjectLeverMethod( ether(800), dai);  
+        await subjectDeleverMethod(ether(0.75), ctx.tokens.dai );      
+      });
+      
+      it("Ensure inferior (uninitialized) asset can not be repaid", async function(){
+        await subjectLeverMethod( ether(800), dai);  
+        await expect(subjectDeleverMethod(ether(0.75), ctx.tokens.btc )).to.be.revertedWith("Borrow not enabled");      
+      });
+
+      describe("Events", async function () {
+        it("", async function () {
+
+        });
+      });
     });
  
 });

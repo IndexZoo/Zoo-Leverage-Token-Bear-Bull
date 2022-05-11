@@ -781,15 +781,15 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
         // exists the loan would be paid down twice, decollateralizing the Set
         if (!_isEquity) {
             address collateralAsset = enabledAssets[_setToken].collateralAssets;
-            address repayAsset = _setToken.getComponents()[1];
+            address repayAsset = enabledAssets[_setToken].borrowAssets;
 
             for (uint8 i= 0; i <29; i++) {
                 (
-                    uint256 units, 
                     uint256 repayAmount, 
                     uint256 withdrawable, 
                     uint256 totalDebtETH
-                ) = _setToken.calculateRepayAllowances(lendingPoolAddressesProvider, _getUniswapSpender(), _setTokenQuantity);
+                ) = _setToken.calculateRepayAllowances(lendingPoolAddressesProvider, _getUniswapSpender(), repayAsset, _setTokenQuantity);
+                uint256 units = _setToken.calculateRedeemUnits(lendingPoolAddressesProvider, _setTokenQuantity);
 
                 if(units <= withdrawable || totalDebtETH == 0) break;
                 // FIXME: throw smth if repayAmount == 0
@@ -863,6 +863,7 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
     view 
     returns (uint256 _multiplier, uint256 _price) 
     {
+        // TODO: require price be within allowable range
         address collateralAsset = enabledAssets[_setToken].collateralAssets;
         address borrowAsset = enabledAssets[_setToken].borrowAssets;
         require(borrowAsset != address(0), "No issuing before assigning borrowAsset");

@@ -105,6 +105,7 @@ interface Tokens {
 interface ATokens {
   aWeth: AaveV2AToken;
   aBtc: AaveV2AToken;
+  aUsdc: AaveV2AToken;
 }
 
 interface Contracts {
@@ -133,21 +134,30 @@ class Context {
 
   private currentWethUniswapLiquidity: BigNumber;
 
-  public async changeUniswapPrice (owner: Account, weth:  Contract, dai:  StandardTokenMock, newPrice: BigNumber, initPrice: BigNumber): Promise<void>  {
-    let k = ether(45).mul(ether(45000));
-    let sqrtK = Math.sqrt(k.div(newPrice).div(ether(1)).toNumber());
-    sqrtK = Math.round(sqrtK*10**4)/10**4;
-    let sqrtKBN: BigNumber = ether(sqrtK);
-    let amount =  this.currentWethUniswapLiquidity.sub(sqrtKBN).mul(101).div(100);  // *1.01 is a hack (factor)
+  public async changeUniswapPrice (
+    owner: Account, 
+    weth:  Contract, 
+    dai:  StandardTokenMock, 
+    newPrice: BigNumber, 
+    initPrice: BigNumber,
+    liq1: BigNumber = ether(45),
+    liq2: BigNumber = ether(45000),
+    units: any = ether 
+    ): Promise<void>  {
+    let k = liq1.mul(liq2);
+    let sqrtK = Math.sqrt(k.div(newPrice).div(units(1)).toNumber());
+    sqrtK = Math.round(sqrtK*10**8)/10**8;
+    let sqrtKBN: BigNumber = units === bitcoin? units(Math.round(sqrtK)): units(sqrtK);
+    let amount =  liq1.sub(sqrtKBN).mul(101).div(100);  // *1.01 is a hack (factor)
     if(newPrice.gt(initPrice)) {
       // delta_w = w - sqrt(k / newPrice)
       // let amount = newPrice.sub(initPrice).mul(ether(45).mul(ether(0.96))).div(newPrice.add(initPrice)).div(ether(1));
       await this.router!.swapTokensForExactTokens(amount, MAX_UINT_256, [dai.address, weth.address], owner.address, MAX_UINT_256) ;
-      this.currentWethUniswapLiquidity = this.currentWethUniswapLiquidity.add(amount);
+      liq1 = liq1.add(amount);
     } else if(newPrice.lt(initPrice)) {
       amount = amount.mul(-1);
       await this.router!.swapExactTokensForTokens(amount, 0, [weth.address, dai.address], owner.address, MAX_UINT_256) ;
-      this.currentWethUniswapLiquidity =  this.currentWethUniswapLiquidity.sub(amount);
+      liq1 =  liq1.sub(amount);
     }
   }
 
@@ -250,6 +260,63 @@ class Context {
       await this.ct.aaveLeverageModule.initialize(
         deployedSetToken.address,
         this.tokens.btc.address,
+        borrowAsset.address
+      );
+
+      // -------------- Hooks -------------
+      await this.ct.lev3xModuleIssuanceHook.initialize(deployedSetToken.address);
+      await this.ct.lev3xModuleIssuanceHook.registerToIssuanceModule(deployedSetToken.address);
+
+  }
+
+ /**
+  * TODO: refactor create sets
+   * @dev creates SetToken via a contract factory
+   */
+  public async createBearIndex(
+    borrowAsset: StandardTokenMock = this.tokens.dai
+    ): Promise<void> {
+      const tx =  await this.ct.creator.create(
+        [this.aTokens.aUsdc.address ],
+        [usdcUnit(1) ],
+        [
+          this.ct.streamingFee.address,
+          this.ct.aaveLeverageModule.address,
+          this.ct.issuanceModule.address,
+          this.ct.lev3xModuleIssuanceHook.address
+        ], 
+        this.accounts.owner.address, 
+        "Bear3xBtc", 
+        "BtcBear"
+      );
+      const receipt = await tx.wait();
+      const event = receipt.events?.find(p => p.event == "SetTokenCreated");
+      const tokensetAddress = event? event.args? event.args[0]:"":"";
+
+      let deployedSetToken =  await ethers.getContractAt(SetTokenABI, tokensetAddress) as SetToken;
+      this.sets.push(deployedSetToken );
+
+      await this.ct.issuanceModule.initialize(
+        deployedSetToken.address,
+        ether(0),
+        ether(0),
+        ether(0),
+        this.accounts.owner.address,
+        ADDRESS_ZERO
+      );
+
+      await this.ct.streamingFee.initialize(
+        deployedSetToken.address, {
+         feeRecipient: this.accounts.protocolFeeRecipient.address,
+         maxStreamingFeePercentage: ether(0.05),
+         streamingFeePercentage: ether(0.01),
+         lastStreamingFeeTimestamp: 0
+      });
+
+      await this.ct.aaveLeverageModule.updateAllowedSetToken(deployedSetToken.address, true);
+      await this.ct.aaveLeverageModule.initialize(
+        deployedSetToken.address,
+        this.tokens.usdc.address,
         borrowAsset.address
       );
 
@@ -374,6 +441,7 @@ class Context {
       await this.initializeERC20(this.tokens.btc.address, ether(10));
       await this.initializeERC20(this.tokens.usdc.address, ether(0.001));
       this.aTokens.aBtc = (this.reserveTokens.get(this.tokens.btc.address)).aToken;
+      this.aTokens.aUsdc= (this.reserveTokens.get(this.tokens.usdc.address)).aToken;
       /* ============================================= Zoo Ecosystem ==============================================================*/
       this.ct.controller =  await (await ethers.getContractFactory("Controller")).deploy(
         this.accounts.protocolFeeRecipient.address
