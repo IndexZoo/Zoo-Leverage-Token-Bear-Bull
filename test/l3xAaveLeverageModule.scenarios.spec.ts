@@ -6,7 +6,7 @@ import { createFixtureLoader, solidity } from "ethereum-waffle";
 import {AaveV2Fixture} from "@setprotocol/set-protocol-v2/dist/utils/fixtures";
 import {AaveV2LendingPool} from "@setprotocol/set-protocol-v2/typechain/AaveV2LendingPool";
 
-import {ether, approx, preciseMul} from "../utils/helpers";
+import {ether, approx, preciseMul, preciseDiv} from "../utils/helpers";
 
 import { Context } from "../utils/test/context";
 import { Account } from "@utils/types";
@@ -22,6 +22,10 @@ import { SetToken } from "@typechain/SetToken";
 import {usdc as usdcUnit, bitcoin} from "../utils/common/unitsUtils";
 chai.use(solidity);
 chai.use(approx);
+
+const advanceTime = async (duration: number): Promise<void> => {
+  await ethers.provider.send('evm_increaseTime', [duration*3600*24*365.25]); // duration in years 
+};
 
 describe("Complex scenarios with Aaveleverage", function () {
       let ctx: Context;
@@ -543,9 +547,153 @@ describe("Complex scenarios with Aaveleverage", function () {
         expect(await bearIndex.balanceOf(bob.address)).to.be.eq(ether(0));
         expect(await bearIndex.balanceOf(alice.address)).to.be.eq(ether(0));
 
-        expect(await ctx.aTokens.aUsdc.balanceOf(zToken.address)).to.be.lt(BigNumber.from(1000)); //  ~ 0.00000622767
+        expect(await ctx.aTokens.aUsdc.balanceOf(bearIndex.address)).to.be.lt(BigNumber.from(1000)); //  ~ 0.00000622767
         expect(bobRedeem).to.be.approx(expectedBobProfit.add(redeemables[1]));
         expect(aliceIssue).to.be.approx(aliceRedeem);  // 1.3% less redeem due to fees
       });
     });
+    describe("Stream fees scenarios", async function () {
+      let bearIndex: SetToken;  // usdc base
+      let btc: StandardTokenMock;
+      let protocolFeeRecipient: Account;
+      let aBtc: any;
+      let usdcTracker: BalanceTracker ;
+      let aUsdcTracker: BalanceTracker;
+      let usdc: StandardTokenMock;
+      let aUsdc: any;
+      beforeEach ("",  async function(){
+        await ctx.createBearIndex(ctx.tokens.btc);
+        protocolFeeRecipient = ctx.accounts.protocolFeeRecipient;
+        bearIndex = ctx.sets[ctx.sets.length-1];
+        btc = ctx.tokens.btc;
+        usdc = ctx.tokens.usdc;
+        aUsdc = ctx.aTokens.aUsdc;
+        usdcTracker = new BalanceTracker(usdc);
+        aUsdcTracker = new BalanceTracker(aUsdc);
+
+        await ctx.tokens.btc.approve(ctx.aaveFixture.lendingPool.address, MAX_UINT_256);
+        await ctx.tokens.btc.approve(ctx.router!.address, MAX_UINT_256);
+        await ctx.tokens.usdc.approve(ctx.router!.address, MAX_UINT_256);
+
+        await ctx.aaveFixture.lendingPool.deposit(
+          ctx.tokens.btc.address,
+          bitcoin(20),
+          ctx.accounts.owner.address,
+          ZERO
+        );
+        
+        await usdc.transfer(alice.address, usdcUnit(10000));
+        await usdc.transfer(bob.address, usdcUnit(10000));
+
+          // await ctx.ct.aaveLeverageModule.lever(
+          //   bearIndex.address,
+          //   btc.address,
+          //   usdc.address,
+          //   1,
+          //   ZERO,
+          //   UNISWAP_INTEGRATION,
+          //   "0x"
+          // );
+      }) ;
+
+      it("Scenario users issue and redeem after and before leveraging with price change ", async function() {
+        // issue1 -> leverage -> advanceTime: accrueFee -> issue2 -> redeem1 -> redeem2
+        let quantities = [ether(2000), ether(1000), ether(1000)];
+        let redeemables = [usdcUnit(2000), usdcUnit(1000), usdcUnit(1000)];  //   
+        let years = 2;
+        await usdc.connect(bob.wallet).approve(ctx.ct.issuanceModule.address, MAX_UINT_256);
+        await usdc.connect(alice.wallet).approve(ctx.ct.issuanceModule.address, MAX_UINT_256);
+
+        await aUsdcTracker.push(bearIndex.address);
+        await usdcTracker.pushMultiple([bob.address, alice.address, owner.address]);
+        
+        await ctx.ct.issuanceModule.connect(bob.wallet).issue(bearIndex.address, quantities[1], bob.address, MAX_UINT_256);
+        
+        await aUsdcTracker.push(bearIndex.address);
+        await usdcTracker.pushMultiple([bob.address, alice.address, owner.address]);
+        let bobIssue = usdcTracker.lastSpent(bob.address);
+
+        let leverParams = [
+          {q: bitcoin(0.8).div(10000), b: usdcUnit(7500).div(10000)},
+          {q: bitcoin(0.620).div(10000), b: usdcUnit(600).div(10000)},
+          {q: bitcoin(0.500).div(10000), b: usdcUnit(4500).div(10000)},
+          {q: bitcoin(0.320).div(10000), b: usdcUnit(3000).div(10000)}
+        ];
+
+        let totalLev = ether(3.24);   // summation of q element + 1 in leverParams
+        
+        for(let param of leverParams) {
+          await ctx.ct.aaveLeverageModule.lever(
+            bearIndex.address,
+            btc.address,
+            usdc.address,
+            param.q,
+            ZERO,
+            UNISWAP_INTEGRATION,
+            "0x"
+          );
+        } 
+
+        await advanceTime(years);
+        await ctx.ct.streamingFee.accrueFee(bearIndex.address);
+
+        await ctx.aaveFixture.setAssetPriceInOracle(usdc.address, ether(0.001125));  // 1 ETH = 1250 usdc 
+        await ctx.changeUniswapPrice(
+          owner, 
+          btc, 
+          usdc, 
+          usdcUnit(8889), 
+          usdcUnit(10000),
+          bitcoin(40),
+          usdcUnit(400000),
+          bitcoin 
+        );
+        // verify uniswap pricing is as expected 
+        let usdcAmountOut = (await ctx.router.getAmountsOut(bitcoin(1), [btc.address, usdc.address]))[1];
+        expect(usdcAmountOut).to.be.approx(usdcUnit(8889));
+
+        await aUsdcTracker.push(bearIndex.address);
+        await usdcTracker.pushMultiple([bob.address, alice.address, owner.address]);
+        
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(bearIndex.address, quantities[0], alice.address, MAX_UINT_256);
+        await ctx.ct.issuanceModule.connect(bob.wallet).redeem(bearIndex.address, quantities[1], bob.address, ZERO);
+        await aUsdcTracker.push(bearIndex.address);
+        await usdcTracker.pushMultiple([bob.address, alice.address, owner.address]);
+        let bobRedeem = usdcTracker.lastEarned(bob.address);
+        let aliceIssue = usdcTracker.lastSpent(alice.address);
+          
+        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(bearIndex.address, quantities[0], alice.address, ZERO);
+        
+        await usdcTracker.pushMultiple([bob.address, alice.address, owner.address]);
+        await aUsdcTracker.push(bearIndex.address);
+        
+        let aliceRedeem = (usdcTracker.lastEarned(alice.address));
+
+        // 0.0000125 * 1000 * 2.24 / 0.0001125
+        let expectedBobProfit = usdcUnit(248);
+        let expectedBobFundsWithoutStreamFees =(expectedBobProfit.add(redeemables[1])) ;
+        let feeNotional = preciseMul(expectedBobFundsWithoutStreamFees, ether(0.02));   // fee received by manager
+
+        // Bob pays some of funds because of fees accrued by manager
+        let expectedBobFunds = expectedBobFundsWithoutStreamFees.sub(feeNotional);
+
+        let recipientIndexBalance = await bearIndex.balanceOf(protocolFeeRecipient.address);
+        
+        await ctx.ct.issuanceModule.connect(protocolFeeRecipient.wallet).redeem(bearIndex.address, recipientIndexBalance, protocolFeeRecipient.address, ZERO);
+
+        expect(await bearIndex.totalSupply()).to.be.eq(ether(0));     // all redeemed 
+        expect(await bearIndex.balanceOf(bob.address)).to.be.eq(ether(0));
+        expect(await bearIndex.balanceOf(alice.address)).to.be.eq(ether(0));
+
+        expect(await ctx.aTokens.aUsdc.balanceOf(bearIndex.address)).to.be.lt(BigNumber.from(10)); //  ~ 5e-6 
+        expect(bobRedeem).to.be.approx(expectedBobFunds);
+        expect(aliceIssue).to.be.approx(aliceRedeem);  // 
+      });
+    });
+    // TODO: bot scenario
+    // - issueA -> price rise much -> leverage (can be separate scenario)
+    // - issueB -> price plummet -> bot intervene to delever
+    // - price plummet again to reach first price
+    // - redeemA : initFunds
+    // - redeemB : huge loss
 });

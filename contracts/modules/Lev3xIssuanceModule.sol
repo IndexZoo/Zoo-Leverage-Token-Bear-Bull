@@ -175,6 +175,7 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
         nonReentrant
         onlyValidAndInitializedSet(_setToken)
     {
+        // TODO: require quantity <= balance
         require(_quantity > 0, "Redeem quantity must be > 0");
         require(_setToken.totalSupply() > 0, "No supply of set to redeem");
 
@@ -261,7 +262,7 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
     )
     internal
     {
-        require(_setToken.getComponents().length >= 2, "Index not levereaged yet");
+        // require(_setToken.getComponents().length >= 2, "Index not levereaged yet");
         _executeExternalPositionHooks(_setToken, _quantity, IERC20(_component), _isIssue, false);
     }
 

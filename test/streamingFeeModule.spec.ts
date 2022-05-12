@@ -74,12 +74,14 @@ describe("Complex scenarios with Aaveleverage", function () {
         await indexTracker.push(protocolFeeRecipient.address);
         await ctx.ct.streamingFee.accrueFee(zToken.address);
         await indexTracker.push(protocolFeeRecipient.address);
-        expect(indexTracker.lastEarned(protocolFeeRecipient.address)).to.be.approx(ether(0.0004));
+        expect(indexTracker.lastEarned(protocolFeeRecipient.address)).to.be.approx(ether(0.0004), 0.03);  // ~ 408163304899734
         expect(await zToken.totalSupply()).to.be.approx(ether(0.0204));
       });
 
-      it.only("Issue then verify redeem of all Z balance after leveraging for Bob and price rise", async function() {
+      it("Issue then verify redeem of all Z balance after leveraging for Bob and price rise", async function() {
         let quantity = ether(0.02);
+        let fee = ether(0.01);
+        let years = 2;
         await weth.connect(bob.wallet).approve(ctx.ct.issuanceModule.address, quantity);
 
         await aWethTracker.push(zToken.address);
@@ -88,7 +90,7 @@ describe("Complex scenarios with Aaveleverage", function () {
         await aWethTracker.push(zToken.address);
         await wethTracker.push(bob.address);
         
-        await advanceTime(2);
+        await advanceTime(years);
         await indexTracker.push(protocolFeeRecipient.address);
         await ctx.ct.streamingFee.accrueFee(zToken.address);
         await indexTracker.push(protocolFeeRecipient.address);
@@ -105,16 +107,20 @@ describe("Complex scenarios with Aaveleverage", function () {
         
         await ctx.ct.issuanceModule.connect(bob.wallet).redeem(zToken.address, quantity, bob.address, ZERO);
         await wethTracker.push(bob.address);
-        console.log(wethTracker.lastEarned(bob.address));
+        let bobFunds = wethTracker.lastEarned(bob.address);
+
+        //   quantity / (quantity + quantity * fee * years)  * quantity
+        let expectedBobFunds = quantity.mul(quantity).div(preciseMul(quantity, ether(1).add(fee.mul(years))));
 
         let feeRecipientBalance = await zToken.balanceOf(protocolFeeRecipient.address);
         await wethTracker.push(protocolFeeRecipient.address);
         await ctx.ct.issuanceModule.connect(protocolFeeRecipient.wallet).redeem(zToken.address, feeRecipientBalance, protocolFeeRecipient.address, ZERO);
         await wethTracker.push(protocolFeeRecipient.address);
-        console.log(wethTracker.lastEarned(protocolFeeRecipient.address));
+        let feeRecipientFunds = wethTracker.lastEarned(protocolFeeRecipient.address);
+        let expectedFeeRecipientFunds = quantity.sub(expectedBobFunds);
 
-
+        expect(bobFunds).to.be.approx(expectedBobFunds);
+        expect(feeRecipientFunds).to.be.approx(expectedFeeRecipientFunds, 0.03);
       });
-      // TODO: example feeRecipient with leverage winner
     });
 });

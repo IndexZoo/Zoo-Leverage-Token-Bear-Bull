@@ -127,26 +127,30 @@ describe("Testing Ecosystem", function () {
         expect(bobStatus.healthFactor).to.be.approx(ether(1), 0.035);  // healthFactor <= 1 ∓ 0.035
         expect(bobStatus.healthFactor).to.be.gt(ether(1));
       });
-      it.only("aave deposit borrow then advance time to check interest", async function(){
-        // FIXME: work here 
+      it("aave deposit borrow then advance time to check interest", async function(){
         await approveAndDeposit(weth, bob, ether(1));
         await approveAndDeposit(weth, alice, ether(5));
         await aaveLender.connect(bob.wallet).borrow(dai.address, ether(700), 2, 0, bob.address);
         let bobStatus = await aaveLender.getUserAccountData(bob.address);
-        console.log(bobStatus.totalDebtETH);
-        console.log(bobStatus.totalCollateralETH);
-        console.log(bobStatus.availableBorrowsETH);
-        console.log(bobStatus.healthFactor);  // healthFactor <= 1 ∓ 0.035
+        let initBobDebt = bobStatus.totalDebtETH;
+        let initBobHF = bobStatus.healthFactor;  // 
 
-        await advanceTime(10);
-        // TODO: expect revert on borrowing another 50 
+        await advanceTime(10);  // advance 10 years in time
         await aaveLender.connect(bob.wallet).borrow(dai.address, ether(50), 2, 0, bob.address);
         await aaveLender.connect(alice.wallet).borrow(dai.address, ether(2000), 2, 0, alice.address);
         bobStatus = await aaveLender.getUserAccountData(bob.address);
-        console.log(bobStatus.totalDebtETH);
-        console.log(bobStatus.totalCollateralETH);
-        console.log(bobStatus.availableBorrowsETH);
-        console.log(bobStatus.healthFactor);  // healthFactor <= 1 ∓ 0.035
+        let finalBobDebt = bobStatus.totalDebtETH;
+        let finalBobHF = bobStatus.healthFactor;  // 
+
+        expect(finalBobDebt).to.be.gt(initBobDebt);
+        expect(finalBobHF).to.be.lt(initBobHF);
+
+        // Reverted with "11": "not enough collateral to cover borrow";
+          // - Bob should have a total of ether(800) of dai to borrow
+          // - because of borrow fees incurred on Bob's debt, can no longer borrow amount previously available
+        await expect(
+          aaveLender.connect(bob.wallet).borrow(dai.address, ether(50), 2, 0, bob.address)
+        ).to.be.revertedWith("11");
       });
       it("aave double deporrows then estimate healthFactor", async function(){
         let price  = 1000;

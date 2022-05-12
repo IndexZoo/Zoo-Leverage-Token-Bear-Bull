@@ -1,8 +1,9 @@
 # Dev Phase Notes
 ## TODO
-        // TODO: time advance for checking borrow fees
-        // TODO: streamfees
+        // TODO: refactor for contract size
+        // TODO: scenario with intervening bot (avoid liquidation)
         // TODO: Rebalance
+        // TODO: Docs
         
         // validate price uniswap synced with oracle on redeem and issue
 
