@@ -206,10 +206,18 @@ describe("Various tests: Accessor methods / events emitted / views", function ()
         await expect(subjectDeleverMethod(ether(0.75), ctx.tokens.btc )).to.be.revertedWith("Borrow not enabled");      
       });
 
-      describe("Events", async function () {
-        it("", async function () {
+    });
 
-        });
+    describe("Events", async function () {
+      let subjectIssueCall: () => Promise<ContractTransaction>;   
+      beforeEach ("", async function () {
+        let quantity = ether(0.01);
+        subjectIssueCall = () => 
+          ctx.ct.issuanceModule.connect(alice.wallet).issue(zToken.address, quantity, alice.address, MAX_UINT_256);
+      });
+      it("Verify event emitted on set index issue", async function () {
+        await weth.connect(alice.wallet).approve(ctx.ct.issuanceModule.address, MAX_UINT_256);  // ∵ 
+        await expect(subjectIssueCall()).to.emit(ctx.ct.issuanceModule, "SetTokenIssued");
       });
     });
  

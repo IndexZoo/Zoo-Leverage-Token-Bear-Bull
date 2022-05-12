@@ -29,6 +29,9 @@ chai.use(approx);
 //    - then withdraw debt` = amountIn(weth, debtAmount) = collateralAmountToWithdraw 
 ///   - else withdraw the allowed withdrawable then pay all withdrawable for part of debt
 
+const advanceTime = async (duration: number): Promise<void> => {
+  await ethers.provider.send('evm_increaseTime', [duration*3600*24*365.25]); // duration in years 
+};
 
 describe("Testing Ecosystem", function () {
   let ctx: Context;
@@ -123,6 +126,27 @@ describe("Testing Ecosystem", function () {
         expect(bobStatus.availableBorrowsETH).to.be.eq(0);
         expect(bobStatus.healthFactor).to.be.approx(ether(1), 0.035);  // healthFactor <= 1 ∓ 0.035
         expect(bobStatus.healthFactor).to.be.gt(ether(1));
+      });
+      it.only("aave deposit borrow then advance time to check interest", async function(){
+        // FIXME: work here 
+        await approveAndDeposit(weth, bob, ether(1));
+        await approveAndDeposit(weth, alice, ether(5));
+        await aaveLender.connect(bob.wallet).borrow(dai.address, ether(700), 2, 0, bob.address);
+        let bobStatus = await aaveLender.getUserAccountData(bob.address);
+        console.log(bobStatus.totalDebtETH);
+        console.log(bobStatus.totalCollateralETH);
+        console.log(bobStatus.availableBorrowsETH);
+        console.log(bobStatus.healthFactor);  // healthFactor <= 1 ∓ 0.035
+
+        await advanceTime(10);
+        // TODO: expect revert on borrowing another 50 
+        await aaveLender.connect(bob.wallet).borrow(dai.address, ether(50), 2, 0, bob.address);
+        await aaveLender.connect(alice.wallet).borrow(dai.address, ether(2000), 2, 0, alice.address);
+        bobStatus = await aaveLender.getUserAccountData(bob.address);
+        console.log(bobStatus.totalDebtETH);
+        console.log(bobStatus.totalCollateralETH);
+        console.log(bobStatus.availableBorrowsETH);
+        console.log(bobStatus.healthFactor);  // healthFactor <= 1 ∓ 0.035
       });
       it("aave double deporrows then estimate healthFactor", async function(){
         let price  = 1000;

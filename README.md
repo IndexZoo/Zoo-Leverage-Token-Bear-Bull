@@ -1,8 +1,5 @@
 # Dev Phase Notes
 ## TODO
-        
-        // TODO: tests for essential events emitted
-        
         // TODO: time advance for checking borrow fees
         // TODO: streamfees
         // TODO: Rebalance
