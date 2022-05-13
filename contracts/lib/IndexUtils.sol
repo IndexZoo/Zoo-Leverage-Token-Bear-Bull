@@ -122,7 +122,16 @@ library IndexUtils {
     }
 
     /**
-     * TODO: Document this
+     * Function works along side delevering process as it aims to get the amount allowable to be 
+     * repaid for Aave in order to proceed other tasks.
+     * Note that repayAmount is equal to the withdrawable amount if leverage is greater than
+     * (1 + ltv). In that case, it is likely needed to execute multiple consecutive withdrawals.
+     * Otherwise repayAmount is the debt of setToken to Aave.
+     * @param _setToken                          instance of SetToken to execute calcs on
+     * @param _lendingPoolAddressesProvider      lending Protocol
+     * @param _router                            Uniswap Router
+     * @param _repayAsset                        The asset incurring debt on _setToken to Aave
+     * @param _setTokenQuantity                  Quantity of setToken to be redeemed
      */
 
     function calculateRepayAllowances(
@@ -136,10 +145,9 @@ library IndexUtils {
     view
     returns (uint256 _repayAmount, uint256 _withdrawable, uint256 _totalDebtETH) 
     {
-        uint256 _units;
+        // uint256 _units;
         uint256 totalCollateralETH;
         address collateralAsset = _setToken.getComponents()[0];
-        // address borrowAsset = _setToken.getComponents()[1];
         uint256 ltv; 
 
         (
@@ -147,18 +155,19 @@ library IndexUtils {
             _totalDebtETH,
             ,, ltv,
         ) = ILendingPool(_lendingPoolAddressesProvider.getLendingPool()).getUserAccountData(address(_setToken));
-        // TODO: remove units
         
         // units redeemed according to collateral/debt proportion
         // updating units because the deviation between dex & oracle prices might cause increase for (c - d) which is anamolous
-        _units = (totalCollateralETH.sub(_totalDebtETH)).preciseDivCeil(_setToken.totalSupply()).preciseMulCeil(_setTokenQuantity);
-        _units = _units.preciseDivCeil(_setToken.totalSupply());   // 
-        // TODO: TODO: convert totalDebtETH to be amount out of Uniswap
+        // _units = (totalCollateralETH.sub(_totalDebtETH)).preciseDivCeil(_setToken.totalSupply()).preciseMulCeil(_setTokenQuantity);
+        // _units = _units.preciseDivCeil(_setToken.totalSupply());   // 
+        
         if(_totalDebtETH == 0)  return (0, totalCollateralETH, 0);
 
         uint256 debtInBorrowAsset = getDebtAmount(_lendingPoolAddressesProvider, address(_setToken), _repayAsset); 
         ltv = 1 ether * ltv / 10000;
-        _withdrawable = totalCollateralETH.sub(_totalDebtETH.preciseDivCeil(ltv)).preciseDiv(_setToken.totalSupply());
+        // position HF < 1, hence cannot withdraw, (typically portion will be liquidated) 
+        require(totalCollateralETH  >=_totalDebtETH.preciseDivCeil(ltv), "Position needs funding" );
+        _withdrawable = (totalCollateralETH - (_totalDebtETH.preciseDivCeil(ltv))).preciseDiv(_setToken.totalSupply());
         _withdrawable = _withdrawable.preciseDiv(
             assetPriceInETH(_setToken, _lendingPoolAddressesProvider, AssetType.COLLATERAL)
         );
@@ -174,12 +183,6 @@ library IndexUtils {
         ); 
 
         _repayAmount = _totalDebtETH.preciseDiv(_setToken.totalSupply()) >= _withdrawable? _withdrawable:_totalDebtETH.preciseDivCeil(_setToken.totalSupply());
-        // FIXME: repayAmount zeroed
-        
-        // _repayAmount = _repayAmount.preciseDiv(
-        //     assetPriceInETH(_setToken, _lendingPoolAddressesProvider, AssetType.COLLATERAL)
-        // );
-        // _repayAmount = _repayAmount.preciseMul(getUnitOf(IERC20(collateralAsset)));
     }
 
     function calculateRedeemUnits(
@@ -313,20 +316,6 @@ library IndexUtils {
         );
         bytes memory data = _setToken.invoke(target, callValue, methodData);
         amounts = abi.decode(data, (uint256[]));
-
-
-        // address[] memory path = new address[](2);
-        // path[0] = _tokenIn;
-        // path[1] = _tokenOut;
-        // bytes memory callData = abi.encodeWithSignature(
-        //     "swapTokensForExactTokens(uint256,uint256,address[],address,uint256)",
-        //     amountOut,
-        //     amountInMax,
-        //     path,
-        //     address(_setToken),
-        //     block.timestamp
-        // );
-        // _setToken.invoke(address(configs[_setToken].router), 0, callData);
     }
 
 

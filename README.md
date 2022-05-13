@@ -1,23 +1,3 @@
-# Dev Phase Notes
-## TODO
-        // TODO: refactor for contract size
-        // TODO: scenario with intervening bot (avoid liquidation)
-        // TODO: Rebalance
-        // TODO: Docs
-        
-        // validate price uniswap synced with oracle on redeem and issue
-
-
-// Notes: 
-// In order to repay debt check withdrawable > debt`
-//    - then withdraw debt` = amountIn(weth, debtAmount) = collateralAmountToWithdraw 
-///   - else withdraw the allowed withdrawable then pay all withdrawable for part of debt
-## Not SetProto stds
-- Debt gets transferred to issuer in Set Proto
-- Lev/delev called only by manager not allowing multiple levs in one txn
-- investor pay debt on issue
-
-
 # Advanced Sample Hardhat Project
 
 This project demonstrates an advanced Hardhat use case, integrating other tools commonly used alongside Hardhat in the ecosystem.

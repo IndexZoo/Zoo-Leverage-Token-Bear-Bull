@@ -219,6 +219,9 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
 
     string constant public UNISWAP_INTEGRATION = "UNISWAP";  // For uniswap-like dex
 
+    // Factor that represents the amount of output to be accepted within swapping 
+    uint256 constant internal SWAP_LOWER_LIMIT = 0.95 ether;
+
     /* ============ State Variables ============ */
 
     // Mapping to efficiently fetch reserve token addresses. Tracking Aave reserve token addresses and updating them 
@@ -513,46 +516,6 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
     }
 
     /**
-     * @dev CALLABLE BY ANYBODY: Sync Set positions with ALL enabled Aave collateral and borrow positions. 
-     * For collateral assets, update aToken default position. For borrow assets, update external borrow position.
-     * - Collateral assets may come out of sync when interest is accrued or a position is liquidated
-     * - Borrow assets may come out of sync when interest is accrued or position is liquidated and borrow is repaid
-     * Note: In Aave, both collateral and borrow interest is accrued in each block by increasing the balance of
-     * aTokens and debtTokens for each user, and 1 aToken = 1 variableDebtToken = 1 underlying.
-     * @param _setToken               Instance of the SetToken
-     */
-    function sync(ISetToken _setToken) public nonReentrant onlyValidAndInitializedSet(_setToken) {
-        // uint256 setTotalSupply = _setToken.totalSupply();
-        // // TODO: if priceOracle fail to get -> fallback address
-        // IPriceOracleGetter priceOracle = IPriceOracleGetter(lendingPoolAddressesProvider.getPriceOracle());
-
-        // // Only sync positions when Set supply is not 0. Without this check, if sync is called by someone before the 
-        // // first issuance, then editDefaultPosition would remove the default positions from the SetToken
-        // if (setTotalSupply > 0) {
-        //     address collateralAssets = enabledAssets[_setToken].collateralAssets;
-        //     IAToken aToken = underlyingToReserveTokens[IERC20(collateralAssets)].aToken;
-                
-        //     uint256 previousPositionUnit = _setToken.getDefaultPositionRealUnit(address(aToken)).toUint256();
-        //     uint256 newCollateralPositionUnit = _getCollateralPosition(_setToken, aToken, setTotalSupply);
-            
-        //     address borrowAssets = enabledAssets[_setToken].borrowAssets;
-        //     IERC20 borrowAsset = IERC20(borrowAssets);
-            
-        //     uint256 newDebtPositionUnit = _getBorrowPosition(_setToken, borrowAsset, setTotalSupply).mul(-1).toUint256();
-        //     newDebtPositionUnit = newDebtPositionUnit
-        //        .preciseMul(priceOracle.getAssetPrice(borrowAssets))
-        //        .preciseDiv(priceOracle.getAssetPrice(collateralAssets));
-
-        //     uint256 newPositionUnit = newCollateralPositionUnit.sub(newDebtPositionUnit);
-
-        //     // Note: Accounts for if position does not exist on SetToken but is tracked in enabledAssets
-        //     if (previousPositionUnit != newPositionUnit) {
-        //       _updateCollateralPosition(_setToken, aToken, newPositionUnit);
-        //     }
-        // }
-    }
-
-    /**
      * @dev MANAGER ONLY: Initializes this module to the SetToken. Either the SetToken needs to be on the allowed list
      * or anySetAllowed needs to be true. Only callable by the SetToken's manager.
      * Note: Managers can enable collateral and borrow assets that don't exist as positions on the SetToken
@@ -599,9 +562,6 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
     function removeModule() external override onlyValidAndInitializedSet(ISetToken(msg.sender)) {
         ISetToken setToken = ISetToken(msg.sender);
 
-        // Sync Aave and SetToken positions prior to any removal action
-        sync(setToken);
-
         address borrowAssets = enabledAssets[setToken].borrowAssets;
             IERC20 borrowAsset = IERC20(borrowAssets);
             require(underlyingToReserveTokens[borrowAsset].variableDebtToken.balanceOf(address(setToken)) == 0, "Variable debt remaining");
@@ -634,22 +594,6 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
         require(_setToken.isInitializedModule(address(_debtIssuanceModule)), "Issuance not initialized");
 
         _debtIssuanceModule.registerToIssuanceModule(_setToken);
-    }
-
-    /**
-     * @dev CALLABLE BY ANYBODY: Updates `underlyingToReserveTokens` mappings. Reverts if mapping already exists
-     * or the passed _underlying asset does not have a valid reserve on Aave.
-     * Note: Call this function when Aave adds a new reserve.
-     * @param _underlying               Address of underlying asset
-     */
-    function addUnderlyingToReserveTokensMapping(IERC20 _underlying) external {
-        require(address(underlyingToReserveTokens[_underlying].aToken) == address(0), "Mapping already exists");
-
-        // An active reserve is an alias for a valid reserve on Aave.
-        (,,,,,,,, bool isActive,) = protocolDataProvider.getReserveConfigurationData(address(_underlying));
-        require(isActive, "Invalid aave reserve");
-        
-        _addUnderlyingToReserveTokensMapping(_underlying);
     }
 
     /**
@@ -732,42 +676,16 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
         emit AnySetAllowedUpdated(_anySetAllowed);
     }
 
-    /**
-     * @dev MODULE ONLY: Hook called prior to issuance to sync positions on SetToken. Only callable by valid module.
-     * @param _setToken             Instance of the SetToken
-     */
-    function moduleIssueHook(ISetToken _setToken, uint256 /* _setTokenQuantity */) external override onlyModule(_setToken) {
-        sync(_setToken);
-    }
+    function moduleIssueHook(ISetToken _setToken, uint256 _setTokenQuantity)override external {}
+    function moduleRedeemHook(ISetToken _setToken, uint256 _setTokenQuantity)override external {}
 
-    /**
-     * @dev MODULE ONLY: Hook called prior to redemption to sync positions on SetToken. For redemption, always use current borrowed
-     * balance after interest accrual. Only callable by valid module.
-     * @param _setToken             Instance of the SetToken
-     */
-    function moduleRedeemHook(ISetToken _setToken, uint256 /* _setTokenQuantity */) external override onlyModule(_setToken) {
-        sync(_setToken);
-    }
+    function componentIssueHook(
+        ISetToken _setToken,
+        uint256 _setTokenQuantity,
+        IERC20 _component,
+        bool _isEquity
+    ) external override {}
 
-    /**
-     * @dev MODULE ONLY: Hook called prior to looping through each component on issuance. Invokes borrow in order for 
-     * module to return debt to issuer. Only callable by valid module.
-     * @param _setToken             Instance of the SetToken
-     * @param _setTokenQuantity     Quantity of SetToken
-     * @param _component            Address of component
-     */
-    function componentIssueHook(ISetToken _setToken, uint256 _setTokenQuantity, IERC20 _component, bool _isEquity) external override onlyModule(_setToken) {
-        // Check hook not being called for an equity position. If hook is called with equity position and outstanding borrow position
-        // exists the loan would be taken out twice potentially leading to liquidation
-        if (!_isEquity) {
-            int256 componentDebt = _setToken.getExternalPositionRealUnit(address(_component), address(this));
-
-            require(componentDebt < 0, "Component must be negative");
-
-            uint256 notionalDebt = componentDebt.mul(-1).toUint256().preciseMul(_setTokenQuantity);
-            _borrowForHook(_setToken, _component, notionalDebt);
-        }
-    }
 
     /**
      * @dev MODULE ONLY: Hook called prior to looping through each component on redemption. Invokes repay after 
@@ -783,7 +701,9 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
             address collateralAsset = enabledAssets[_setToken].collateralAssets;
             address repayAsset = enabledAssets[_setToken].borrowAssets;
 
+
             for (uint8 i= 0; i <29; i++) {
+                // repayAmount can not be zero as long as position is healthy 
                 (
                     uint256 repayAmount, 
                     uint256 withdrawable, 
@@ -792,7 +712,8 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
                 uint256 units = _setToken.calculateRedeemUnits(lendingPoolAddressesProvider, _setTokenQuantity);
 
                 if(units <= withdrawable || totalDebtETH == 0) break;
-                // TODO: throw smth if repayAmount == 0
+
+                // Expected repayUnits
                 uint256 minRepayQuantityUnits =  _getUniswapSpender().getSwapAmountOut(
                     repayAmount, 
                     collateralAsset,
@@ -804,12 +725,12 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
                         IERC20(collateralAsset),
                         IERC20(repayAsset),
                         repayAmount,
-                        minRepayQuantityUnits.preciseMul(0.95 ether),   // TODO: replace by zero but account for slippage overall 
+                        minRepayQuantityUnits.preciseMul(SWAP_LOWER_LIMIT),   //  
                         "UNISWAP",
                         "" 
-                );  
+                ); 
+                require(i != 28 || units <= withdrawable || totalDebtETH == 0, "Not enough to be withdrawn" ) ; 
             }
-            // TODO: require(units <= withdrawable || totalDebtETH == 0) 
         }
     }
 
@@ -863,7 +784,7 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
     view 
     returns (uint256 _multiplier, uint256 _price) 
     {
-        // TODO: require price be within allowable range
+        // price needs be within allowable range that is adjusted by tuning the leverage
         address collateralAsset = enabledAssets[_setToken].collateralAssets;
         address borrowAsset = enabledAssets[_setToken].borrowAssets;
         require(borrowAsset != address(0), "No issuing before assigning borrowAsset");
@@ -917,27 +838,12 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
     }
 
     /**
-     * @dev Invoke borrow from the SetToken during issuance hook. Since we only need to interact with AAVE once we fetch the
-     * lending pool in this function to optimize vs forcing a fetch twice during lever/delever.
-     */
-    function _repayBorrowForHook(ISetToken _setToken, IERC20 _asset, uint256 _notionalQuantity) internal {
-        _repayBorrow(_setToken, ILendingPool(lendingPoolAddressesProvider.getLendingPool()), _asset, _notionalQuantity);
-    }
-
-    /**
      * @dev Invoke borrow from the SetToken using AaveV2 library. Mints DebtTokens for SetToken.
      */
     function _borrow(ISetToken _setToken, ILendingPool _lendingPool, IERC20 _asset, uint256 _notionalQuantity) internal {
         _setToken.invokeBorrow(_lendingPool, address(_asset), _notionalQuantity, BORROW_RATE_MODE);
     }
 
-    /**
-     * @dev Invoke borrow from the SetToken during issuance hook. Since we only need to interact with AAVE once we fetch the
-     * lending pool in this function to optimize vs forcing a fetch twice during lever/delever.
-     */
-    function _borrowForHook(ISetToken _setToken, IERC20 _asset, uint256 _notionalQuantity) internal {
-        _borrow(_setToken, ILendingPool(lendingPoolAddressesProvider.getLendingPool()), _asset, _notionalQuantity);
-    }
     
     /**
      * @dev Invokes approvals, gets trade call data from exchange adapter and invokes trade from SetToken
@@ -1431,8 +1337,6 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
      */
     function _getCollateralPosition(ISetToken _setToken, IAToken _aToken, uint256 _setTotalSupply) internal view returns (uint256) {
         return _setToken.getDefaultPositionRealUnit(address(_aToken)).toUint256();
-        // uint256 collateralNotionalBalance = _aToken.balanceOf(address(_setToken));
-        // return collateralNotionalBalance.preciseDiv(_setTotalSupply);
     }
     
     /**

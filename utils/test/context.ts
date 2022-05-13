@@ -140,10 +140,17 @@ class Context {
     dai:  StandardTokenMock, 
     newPrice: BigNumber, 
     initPrice: BigNumber,
-    liq1: BigNumber = ether(45),
+    liq1?: BigNumber ,
     liq2: BigNumber = ether(45000),
     units: any = ether 
     ): Promise<void>  {
+      let setCurrentLiq = false;
+      if (liq1 === undefined) {
+        setCurrentLiq = true;
+        liq1 = this.currentWethUniswapLiquidity;
+      }
+
+
     let k = liq1.mul(liq2);
     let sqrtK = Math.sqrt(k.div(newPrice).div(units(1)).toNumber());
     sqrtK = Math.round(sqrtK*10**8)/10**8;
@@ -159,6 +166,7 @@ class Context {
       await this.router!.swapExactTokensForTokens(amount, 0, [weth.address, dai.address], owner.address, MAX_UINT_256) ;
       liq1 =  liq1.sub(amount);
     }
+    if(setCurrentLiq) this.currentWethUniswapLiquidity = liq1;
   }
 
   public async initializeERC20(token: Address, priceInEth: BigNumber) {

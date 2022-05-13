@@ -16,10 +16,11 @@ import { BalanceTracker } from "../utils/test/BalanceTracker";
 
 import {initUniswapRouter} from "../utils/test/context";
 import { WETH9 } from "@typechain/WETH9";
-import { BigNumber, ContractTransaction, Wallet } from "ethers";
+import { BigNumber, Contract, ContractTransaction, Wallet } from "ethers";
 import { UniswapV2Router02 } from "@setprotocol/set-protocol-v2/typechain/UniswapV2Router02";
 import { SetToken } from "@typechain/SetToken";
 import {usdc as usdcUnit, bitcoin} from "../utils/common/unitsUtils";
+import { UniswapV2Router02Mock } from "@typechain/UniswapV2Router02Mock";
 chai.use(solidity);
 chai.use(approx);
 
@@ -689,11 +690,161 @@ describe("Complex scenarios with Aaveleverage", function () {
         expect(bobRedeem).to.be.approx(expectedBobFunds);
         expect(aliceIssue).to.be.approx(aliceRedeem);  // 
       });
+      // TODO: Leverage after price rise (should be no profit)
+      it("", async function () {
+        // - issueA -> price rise much -> leverage 
+      });
     });
-    // TODO: bot scenario
-    // - issueA -> price rise much -> leverage (can be separate scenario)
+    // : bot scenario ; NOTE this complex test requires new uniswap fixture
+    // - issueA -> price rise much -> leverage 
     // - issueB -> price plummet -> bot intervene to delever
     // - price plummet again to reach first price
     // - redeemA : initFunds
     // - redeemB : huge loss
+    describe("", async function() {
+      let ctx: Context;
+      let bob: Account;
+      let alice: Account;
+      let protocolFeeRecipient: Account;
+      let owner: Account;
+      let weth : Contract;
+      let dai: StandardTokenMock;
+      let daiTracker: BalanceTracker;
+      let wethTracker: BalanceTracker;
+      let aWethTracker: BalanceTracker;
+      let aaveLender: AaveV2LendingPool;
+      let zToken: SetToken;
+      beforeEach ("", async function () {
+        ctx = new Context();
+        await ctx.initialize(true);  // Mock uniswap
+        bob = ctx.accounts.bob;
+        owner = ctx.accounts.owner;
+        alice = ctx.accounts.alice;
+        weth = ctx.tokens.weth as WETH9;
+        dai = ctx.tokens.dai;
+        daiTracker = new BalanceTracker(dai);
+
+        aaveLender = ctx.aaveFixture.lendingPool;
+        zToken = ctx.sets[0];
+        aWethTracker = new BalanceTracker(ctx.aTokens.aWeth);
+        wethTracker = new BalanceTracker(ctx.tokens.weth as any as StandardTokenMock);
+      });
+      it("Scenario users issue and redeem after and before leveraging with price change ", async function() {
+        // issueA -> price ΔΔ  -> leverage -> issueB -> 
+        // price ∇ -> bot delever -> price ∇ -> redeemB & A
+        let bot = ctx.accounts.others[0];
+        await ctx.ct.aaveLeverageModule.updateAnyBotAllowed(zToken.address, true);
+        await ctx.ct.aaveLeverageModule.setCallerPermission(zToken.address, bot.address, true);
+
+        let quantities = [ether(0.02), ether(0.01), ether(0.01)];
+        let redeemables = [ether(0.02), ether(0.01), ether(0.01)];  //   
+        let fee  =  ether(0.0005);  // this is approx swap fee;
+        await weth.connect(bob.wallet).approve(ctx.ct.issuanceModule.address, MAX_UINT_256);
+        await weth.connect(alice.wallet).approve(ctx.ct.issuanceModule.address, MAX_UINT_256);  // ∵ 
+
+        await aWethTracker.push(zToken.address);
+        await wethTracker.pushMultiple([bob.address, alice.address, owner.address]);
+        
+        await ctx.ct.issuanceModule.connect(alice.wallet).issue(zToken.address, quantities[0], alice.address, MAX_UINT_256);
+        
+        await aWethTracker.push(zToken.address);
+        await wethTracker.pushMultiple([bob.address, alice.address, owner.address]);
+
+        let leverParams = [
+          {q: ether(1600), b: ether(0.75)},
+          {q: ether(1220), b: ether(0.6)},
+          {q: ether(1000), b: ether(0.45)},
+          {q: ether(640), b: ether(0.3)}
+        ];
+        // let lev = 3.23;
+
+        await ctx.aaveFixture.setAssetPriceInOracle(dai.address, ether(0.0005));  // 1 ETH = 2000 dai
+        await (ctx.router! as UniswapV2Router02Mock).setPrice(weth.address, dai.address, ether(2000));
+
+        for(let param of leverParams) {
+          await ctx.ct.aaveLeverageModule.lever(
+            zToken.address,
+            dai.address,
+            weth.address,
+            param.q,
+            param.b,
+            UNISWAP_INTEGRATION,
+            "0x"
+          );
+        } 
+
+
+        await aWethTracker.push(zToken.address);
+        await wethTracker.pushMultiple([bob.address, alice.address, owner.address]);
+        await ctx.ct.issuanceModule.connect(bob.wallet).issue(zToken.address, quantities[1], bob.address, MAX_UINT_256);
+        await aWethTracker.push(zToken.address);
+        await wethTracker.pushMultiple([bob.address, alice.address, owner.address]);
+        
+        await ctx.aaveFixture.setAssetPriceInOracle(dai.address, ether(0.00055));  // 1 ETH = 1818.18 dai
+        await (ctx.router! as UniswapV2Router02Mock).setPrice(weth.address, dai.address, ether(1818.18));
+
+
+        // Delever to reach leverage 1.95x
+        await ctx.ct.aaveLeverageModule.connect(bot.wallet).autoDelever(
+          zToken.address,
+          weth.address,
+          dai.address,
+          ether(0.32),
+          ether(0),
+          UNISWAP_INTEGRATION,
+          "0x"
+        );
+        await ctx.ct.aaveLeverageModule.connect(bot.wallet).autoDelever(
+          zToken.address,
+          weth.address,
+          dai.address,
+          ether(0.5),
+          ether(0),
+          UNISWAP_INTEGRATION,
+          "0x"
+        );
+        
+        await ctx.aaveFixture.setAssetPriceInOracle(dai.address, ether(0.000625));  // 1 ETH = 1600 dai
+        await (ctx.router! as UniswapV2Router02Mock).setPrice(weth.address, dai.address, ether(1600));
+        
+        // Delever to reach leverage 1x
+        await ctx.ct.aaveLeverageModule.connect(bot.wallet).autoDelever(
+          zToken.address,
+          weth.address,
+          dai.address,
+          ether(0.5),
+          ether(0),
+          UNISWAP_INTEGRATION,
+          "0x"
+        );   
+        await ctx.ct.aaveLeverageModule.connect(bot.wallet).autoDelever(
+          zToken.address,
+          weth.address,
+          dai.address,
+          ether(0.4),
+          ether(0),
+          UNISWAP_INTEGRATION,
+          "0x"
+        ); 
+
+        await ctx.aaveFixture.setAssetPriceInOracle(dai.address, ether(0.001));  // 1 ETH = 1000 dai
+        await (ctx.router! as UniswapV2Router02Mock).setPrice(weth.address, dai.address, ether(1000));
+
+        await wethTracker.pushMultiple([bob.address, alice.address]);
+        await ctx.ct.issuanceModule.connect(bob.wallet).redeem(zToken.address, quantities[1], bob.address, ZERO);
+        await ctx.ct.issuanceModule.connect(alice.wallet).redeem(zToken.address, quantities[0], alice.address, ZERO);
+        await wethTracker.pushMultiple([bob.address, alice.address]);
+        let bobRedeem = wethTracker.lastEarned(bob.address);
+        let aliceRedeem = wethTracker.lastEarned(alice.address);
+
+        // loss on  price dips  
+        // loss1 = 0.02*2.23*0.00005*1000 = 0.00223
+        // loss2 =  0.02*0.95*0.000075 * 1000 = 0.001425
+        // expectedAliceRedeem = 0.02 - loss1 - loss2
+        let expectedAliceRedeem = ether(0.016);
+        expect(aliceRedeem).to.be.approx(expectedAliceRedeem, 0.1);      // ~ 14484818666666636
+        expect(aliceRedeem).to.be.lt(expectedAliceRedeem);      
+        expect(bobRedeem).to.be.approx(expectedAliceRedeem.div(2), 0.1);
+      });
+    });
 });

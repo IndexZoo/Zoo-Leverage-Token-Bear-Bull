@@ -77,7 +77,7 @@ describe("Testing Issuance with Aaveleverage", function () {
 
         expect(await zToken.getDefaultPositionRealUnit(ctx.aTokens.aWeth.address)).to.be.eq(positionUnit);
 
-        await ctx.ct.aaveLeverageModule.sync(zToken.address);
+        // await ctx.ct.aaveLeverageModule.sync(zToken.address);
         expect(await zToken.getDefaultPositionRealUnit(ctx.aTokens.aWeth.address)).to.be.eq(positionUnit);
         await ctx.ct.aaveLeverageModule.lever(
           zToken.address,
@@ -88,20 +88,20 @@ describe("Testing Issuance with Aaveleverage", function () {
           UNISWAP_INTEGRATION,
           "0x"
         );
-        await ctx.ct.aaveLeverageModule.sync(zToken.address);
+        // await ctx.ct.aaveLeverageModule.sync(zToken.address);
         let assets = await ctx.ct.aaveLeverageModule.getEnabledAssets(zToken.address);
         expect(await zToken.getDefaultPositionRealUnit(ctx.aTokens.aWeth.address)).to.be.approx(positionUnit);
 
         // Issuers win  -- price of weth increase
         let newDaiPrice  = ether(0.001).div(2);
         await ctx.aaveFixture.setAssetPriceInOracle(dai.address, newDaiPrice);
-        await ctx.ct.aaveLeverageModule.sync(zToken.address);
+        // await ctx.ct.aaveLeverageModule.sync(zToken.address);
         expect(await zToken.getDefaultPositionRealUnit(ctx.aTokens.aWeth.address)).to.be.approx(ether(1.4));
        
         // Issuers lose  -- price of weth decrease
         newDaiPrice  = ether(0.001).mul(2);
         await ctx.aaveFixture.setAssetPriceInOracle(dai.address, newDaiPrice);
-        await ctx.ct.aaveLeverageModule.sync(zToken.address);
+        // await ctx.ct.aaveLeverageModule.sync(zToken.address);
         expect(await zToken.getDefaultPositionRealUnit(ctx.aTokens.aWeth.address)).to.be.approx(ether(0.2));
 
       });

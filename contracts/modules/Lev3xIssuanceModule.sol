@@ -111,20 +111,14 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
         
         uint256 initialSetSupply = _setToken.totalSupply();
 
-        (
-            uint256 quantityWithFees,
-            uint256 managerFee,
-            uint256 protocolFee
-        ) = calculateTotalFees(_setToken, _quantity, true);
-
         // Prevent stack too deep
         {       
             (
                 address component,
                 uint256 equityUnit,
-            ) = _calculateRequiredComponentIssuanceUnitsV2(_setToken, quantityWithFees, true);
+            ) = _calculateRequiredComponentIssuanceUnitsV2(_setToken, _quantity, true);
 
-            uint256 finalSetSupply = initialSetSupply.add(quantityWithFees);
+            uint256 finalSetSupply = initialSetSupply.add(_quantity);
 
             // Swap tokens for aTokens by depositing onto Lender
             _preIssueComponents(
@@ -134,8 +128,7 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
             );
 
             // sync()  
-            _resolveEquityPositions(_setToken, quantityWithFees, _to, true, component, equityUnit, initialSetSupply, finalSetSupply);
-            _resolveFees(_setToken, managerFee, protocolFee);
+            _resolveEquityPositions(_setToken, _quantity, _to, true, component, equityUnit, initialSetSupply, finalSetSupply);
             // sync()
         }
         
@@ -147,8 +140,8 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
             _to,
             hookContract,
             _quantity,
-            managerFee,
-            protocolFee
+            0,
+            0
         );
     }
 
@@ -175,7 +168,7 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
         nonReentrant
         onlyValidAndInitializedSet(_setToken)
     {
-        // TODO: require quantity <= balance
+        require(_quantity <= _setToken.balanceOf(msg.sender), "quantity exceeds balance");
         require(_quantity > 0, "Redeem quantity must be > 0");
         require(_setToken.totalSupply() > 0, "No supply of set to redeem");
 
@@ -183,28 +176,21 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
 
         uint256 initialSetSupply = _setToken.totalSupply();
 
-        (
-            uint256 quantityNetFees,
-            uint256 managerFee,
-            uint256 protocolFee
-        ) = calculateTotalFees(_setToken, _quantity, false);
-
         // Prevent stack too deep
         {
             (
                 address component,
                 uint256 equityUnit,
-            ) = _calculateRequiredComponentIssuanceUnitsV2(_setToken, quantityNetFees, false);
+            ) = _calculateRequiredComponentIssuanceUnitsV2(_setToken, _quantity, false);
 
-            uint256 finalSetSupply = initialSetSupply.sub(quantityNetFees);
+            uint256 finalSetSupply = initialSetSupply.sub(_quantity);
 
-            _resolveLeverageState(_setToken, quantityNetFees, false, component);
+            _resolveLeverageState(_setToken, _quantity, false, component);
             // Place burn after pre-redeem hooks because burning tokens may lead to false accounting of synced positions
             _setToken.burn(msg.sender, _quantity);
 
             // sync()
-            uint256 redeemedQuantity = _resolveEquityPositions(_setToken, quantityNetFees, _to, false, component, equityUnit, initialSetSupply, finalSetSupply);
-            _resolveFees(_setToken, managerFee, protocolFee);
+            uint256 redeemedQuantity = _resolveEquityPositions(_setToken, _quantity, _to, false, component, equityUnit, initialSetSupply, finalSetSupply);
             // sync()
             _postRedeemComponents(component, redeemedQuantity, _to, _minEquityReceived); 
         }
@@ -214,8 +200,8 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
             msg.sender,
             _to,
             _quantity,
-            managerFee,
-            protocolFee
+            0,
+            0 
         );
     }
 
@@ -308,17 +294,13 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
                         componentQuantity
                     );
 
-                    IssuanceValidationUtils.validateCollateralizationPostTransferInPreHook(_setToken, _component, _initialSetSupply, componentQuantity);
-
-                    _executeExternalPositionHooks(_setToken, _quantity, IERC20(_component), true, true); // no logic executed
+                    // IssuanceValidationUtils.validateCollateralizationPostTransferInPreHook(_setToken, _component, _initialSetSupply, componentQuantity);
                 } else {
-                    _executeExternalPositionHooks(_setToken, _quantity, IERC20(_component), false, true);
-
                     componentQuantity = _validateComponentLastTransfer(_setToken, _component, componentQuantity);
                     // Call Invoke#invokeTransfer instead of Invoke#strictInvokeTransfer
                     _setToken.invokeTransfer(_component, address(this), componentQuantity);
 
-                    IssuanceValidationUtils.validateCollateralizationPostTransferOut(_setToken, _component, _finalSetSupply);
+                    // IssuanceValidationUtils.validateCollateralizationPostTransferOut(_setToken, _component, _finalSetSupply);
                 }
             } 
             return componentQuantity;
@@ -428,8 +410,24 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
     }
 
     /**
-    * TODO: Do better docs here / Explain formulae for issue/redeem
     * Sums total debt and equity units for each component, taking into account default and external positions.
+    *
+    * ISSUE: 
+    * ======
+    * Issuing index is dependent on current leverage of index position in Aave and current price of 
+    * collateral asset against borrowed asset.
+    * In order to issue new index unit multiply the following factor by default position 
+    * Factor_{i} = [leverage * (1 - initPrice/price) + initPrice/price] * Factor_{i-1}
+    * This factor accumulates throughout leverages and deleverages 
+    *
+    * REDEEM:
+    * =======
+    * Redeeming index depends mainly on the current state of the underlying assets of the index at the
+    * moment of redemption.
+    * Redemption unit = (totalCollateral - totalDebt`) / supply 
+    * Note that totalDebt` represent the debt amount in collateral asset equivalent to that of the actual
+    * debt (totalDebt) in borrow asset. It can be estimated as follow:
+    * totalDebt` =  UniswapRouter.getAmountsIn(totalDebt, [collateral_asset, borrow_asset])
     *
     * @param _setToken         Instance of the SetToken to issue
     *
