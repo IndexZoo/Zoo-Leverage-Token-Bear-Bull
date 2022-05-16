@@ -1,6 +1,11 @@
 {
   "scripts": {
-    "test": "npx hardhat test test/*.spec.ts"
+    "test:eco": "npx hardhat test test/ecosystem.spec.ts",
+    "test:fees": "npx hardhat test test/streamingFeeModule.spec.ts",
+    "test:scenarios": "npx hardhat test test/l3xAaveLeverageModule.scenarios.spec.ts",
+    "test:issuance": "npx hardhat test test/l3xAaveLeverageModule.issaunce.spec.ts",
+    "test:other": "npx hardhat test test/l3xAaveLeverageModule.other.spec.ts",
+    "test:slippage": "npx hardhat test test/l3xAaveLeverageModule.slippage.spec.ts"
   },
   "devDependencies": {
     "@types/chai": "^4.3.0",

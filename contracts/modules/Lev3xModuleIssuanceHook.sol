@@ -25,7 +25,6 @@ import { IModuleIssuanceHook } from "@setprotocol/set-protocol-v2/contracts/inte
 import { Invoke } from "@setprotocol/set-protocol-v2/contracts/protocol/lib/Invoke.sol";
 import { Position } from "@setprotocol/set-protocol-v2/contracts/protocol/lib/Position.sol";
 import { PreciseUnitMath } from "@setprotocol/set-protocol-v2/contracts/lib/PreciseUnitMath.sol";
-import {console} from "hardhat/console.sol";
 
 // TODO: access control (ownable)
 

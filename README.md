@@ -1,46 +1,39 @@
-# Advanced Sample Hardhat Project
+# Leverage Index 
 
-This project demonstrates an advanced Hardhat use case, integrating other tools commonly used alongside Hardhat in the ecosystem.
-
-The project comes with a sample contract, a test for that contract, a sample script that deploys that contract, and an example of a task implementation, which simply lists the available accounts. It also comes with a variety of other tools, preconfigured to work with the project code.
-
-Try running some of the following tasks:
-
-```shell
-npx hardhat accounts
-npx hardhat compile
-npx hardhat clean
-npx hardhat test
-npx hardhat node
-npx hardhat help
-REPORT_GAS=true npx hardhat test
-npx hardhat coverage
-npx hardhat run scripts/deploy.ts
-TS_NODE_FILES=true npx ts-node scripts/deploy.ts
-npx eslint '**/*.{js,ts}'
-npx eslint '**/*.{js,ts}' --fix
-npx prettier '**/*.{json,sol,md}' --check
-npx prettier '**/*.{json,sol,md}' --write
-npx solhint 'contracts/**/*.sol'
-npx solhint 'contracts/**/*.sol' --fix
+## Test
+- Install dependencies
+```
+yarn install
+```
+- Run scenario testing
+```
+yarn run test:scenarios
 ```
 
-# Etherscan verification
+## How it works 
+### Issue
+- The collateral cost `I` required to issue a quantity `q` of SetToken is proportional to `q`. 
+- The cost of issuing per unit of SetToken is dependent on the current leverage state `L` of SetToken and the current price `p` of the collateral asset vs the borrow asset.
 
-To try out Etherscan verification, you first need to deploy a contract to an Ethereum network that's supported by Etherscan, such as Ropsten.
+> m<sub>i</sub> = (L<sub>i</sub>(1-p<sub>i-1</sub>/p<sub>i</sub>) - p<sub>i-1</sub>/p<sub>i</sub>)  * m<sub>i-1</sub>
 
-In this project, copy the .env.example file to a file named .env, and then edit it to fill in the details. Enter your Etherscan API key, your Ropsten node URL (eg from Alchemy), and the private key of the account which will send the deployment transaction. With a valid .env file in place, first deploy your contract:
+> I = m<sub>i</sub> * q
+  - Where `m` is issuing multiplier factor.
 
-```shell
-hardhat run --network ropsten scripts/deploy.ts
+### Redeem
+- Redemption `R` is reflecting the net asset value of the SetToken which equals to the difference between debt and collateral.
+> R = (C - D) * q / T<sub>s</sub>
+  - Where T<sub>s</sub> is total supply of SetToken
+### Rebalance
+- Rebalacing is achieved by a sequence of leverages or deleverages according to the current state of SetToken.
+- Example
+  - Suppose at first we have 1 WETH = 1000 DAI
+  - Having SetToken with Collateral of 3 WETH vs Debt of 2 WETH per unit.
+  - Leverage = 3 / (3-2) = 3
+  - Price jumped:  1 WETH = 1600 DAI
+  - Hence Collateral = 3 WETH vs Debt = 1.25 WETH
+  - Need to borrow 3600 DAI = 2.25 WETH in order to end up with Leverage = 5.25 / (5.25 3.5) = 3.
+  - To achieve that need to call:
 ```
-
-Then, copy the deployment address and paste it in to replace `DEPLOYED_CONTRACT_ADDRESS` in this command:
-
-```shell
-npx hardhat verify --network ropsten DEPLOYED_CONTRACT_ADDRESS "Hello, Hardhat!"
+lever(_setToken, dai, weth, 2.25*10**18, 2.2*10**18, "UNISWAP", "0x" )
 ```
-
-# Performance optimizations
-
-For faster runs of your tests and scripts, consider skipping ts-node's type checking by setting the environment variable `TS_NODE_TRANSPILE_ONLY` to `1` in hardhat's environment. For more details see [the documentation](https://hardhat.org/guides/typescript.html#performance-optimizations).

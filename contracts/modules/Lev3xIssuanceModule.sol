@@ -36,7 +36,6 @@ import { IExchangeAdapter } from "@setprotocol/set-protocol-v2/contracts/interfa
 import { IUniswapV2Router } from "../interfaces/IUniswapV2Router.sol";
 import { IndexUtils } from "../lib/IndexUtils.sol";
 
-import { console } from "hardhat/console.sol";
 
 
 /**
@@ -45,8 +44,7 @@ import { console } from "hardhat/console.sol";
  *
  * The Lev3xIssuanceModule is a module that enables users to issue and redeem SetTokens that contain default and all
  * external positions, including debt positions. Module hooks are added to allow for syncing of positions, and component
- * level hooks are added to ensure positions are replicated correctly. The manager can define arbitrary issuance logic
- * in the manager hook, as well as specify issue and redeem fees.
+ * level hooks are added to ensure positions are replicated correctly. 
  * 
  * NOTE: 
  * Lev3xIssuanceModule contract confirms increase/decrease in balance of component held by the SetToken after every transfer in/out
@@ -57,8 +55,6 @@ import { console } from "hardhat/console.sol";
  * The new checks do NOT apply to any transfers that are part of an external position. A token that has rounding issues may lead to 
  * reverts if it is included as an external position unless explicitly allowed in a module hook.
  *
- * The getRequiredComponentIssuanceUnits function on this module assumes that Default token balances will be synced on every issuance
- * and redemption. If token balances are not being synced it will over-estimate the amount of tokens required to issue a Set.
  */
 contract Lev3xIssuanceModule is DebtIssuanceModule {
     using Position for uint256;
@@ -79,12 +75,10 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
 
     /**
      * Deposits components to the SetToken, replicates any external module component positions and mints 
-     * the SetToken. If the token has a debt position all collateral will be transferred in first then debt
-     * will be returned to the minting address. If specified, a fee will be charged on issuance.
+     * the SetToken. If the token has a debt position all collateral will be transferred after deducting
+     * amount of debt according to price of collateral asset in terms of borrow asset specified by the 
+     * lending protocol's oracle.
      *     
-     * NOTE: Overrides DebtIssuanceModule#issue external function and adds undercollateralization checks in place of the
-     * previous default strict balances checks. The undercollateralization checks are implemented in IssuanceValidationUtils library and they 
-     * revert upon undercollateralization of the SetToken post component transfer.
      *
      * @param _setToken         Instance of the SetToken to issue
      * @param _quantity         Quantity of SetToken to issue
@@ -127,9 +121,7 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
                 _maxEquityCost
             );
 
-            // sync()  
             _resolveEquityPositions(_setToken, _quantity, _to, true, component, equityUnit, initialSetSupply, finalSetSupply);
-            // sync()
         }
         
         _setToken.mint(_to, _quantity);
@@ -147,14 +139,14 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
 
     /**
      * Returns components from the SetToken, unwinds any external module component positions and burns the SetToken.
-     * If the token has debt positions, the module transfers in the required debt amounts from the caller and uses
-     * those funds to repay the debts on behalf of the SetToken. All debt will be paid down first then equity positions
-     * will be returned to the minting address. If specified, a fee will be charged on redeem.
-     *
+     * If the token has debt positions, the module transfers the equity after deducting the debt amount for the user.
+     * 
+     * redeemed_equity = (collateral - debt) * quantity / total_supply
+     * 
      * @param _setToken              Instance of the SetToken to redeem
      * @param _quantity              Quantity of SetToken to redeem
      * @param _to                    Address to send collateral to
-     * @param _minEquityReceived    Slippage
+     * @param _minEquityReceived     Slippage
      */
     function redeem(
         ISetToken _setToken,
@@ -189,9 +181,7 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
             // Place burn after pre-redeem hooks because burning tokens may lead to false accounting of synced positions
             _setToken.burn(msg.sender, _quantity);
 
-            // sync()
             uint256 redeemedQuantity = _resolveEquityPositions(_setToken, _quantity, _to, false, component, equityUnit, initialSetSupply, finalSetSupply);
-            // sync()
             _postRedeemComponents(component, redeemedQuantity, _to, _minEquityReceived); 
         }
 
@@ -208,8 +198,9 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
     /* =========== View Functions ================= */
 
     /**
-    * Calculates the amount of base (collateral) component needed to collateralize passed issue quantity of Sets that will
+    * Calculates the amount of collateral asset needed to collateralize passed issue quantity of Sets that will
     * be returned to caller. Can also be used to determine how much collateral will be returned on redemption. 
+    * It calculates the total amount required of collateral asset for a given setToken quantity.
     *
     * @param _setToken         Instance of the SetToken to issue
     * @param _quantity         Amount of Sets to be issued/redeemed
@@ -235,6 +226,12 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
 
     /**
      * Delever current state of setToken in order to provide enough redeemable quantity for the redeemer.
+     * According to the quantity to be redeemed, setToken might need multiple delevers in order to provide
+     * the redeemer the amount of collateral asset corresponding to the quantity being redeemed.
+     *
+     * The withdrawable quantity of collateral is : collateral - debt/ltv
+     * If amount of collateral to be redeemed is bigger than withdrawable then delever again until you reach 
+     * the target.
      * @param _setToken         Instance of the SetToken to issue
      * @param _quantity         Quantity of SetToken aimed to be redeemed
      * @param _isIssue          process if issue or redeem
@@ -248,19 +245,16 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
     )
     internal
     {
-        // require(_setToken.getComponents().length >= 2, "Index not levereaged yet");
         _executeExternalPositionHooks(_setToken, _quantity, IERC20(_component), _isIssue, false);
     }
 
     /**
-     * Resolve equity positions associated with SetToken. On issuance, the total equity position for an asset (including default and external
-     * positions) is transferred in. Then any external position hooks are called to transfer the external positions to their necessary place.
-     * On redemption all external positions are recalled by the external position hook, then those position plus any default position are
-     * transferred back to the _to address.
-
-     * It also resolves debt positions associated with SetToken. On issuance, debt positions are accounted for by a factor multiplied by the 
-     * set quantity to be issued . On redemption, the module subtracts the required debt amount from the amount 
-     * to be redeemed to caller and uses those funds to repay the debt on behalf of the SetToken.
+     * Resolve equity positions associated with SetToken. On issuance, the total equity position 
+     * for an asset is transferred in. 
+     * It also resolves debt positions associated with SetToken. On issuance, debt positions are 
+     * accounted for by a factor multiplied by the set quantity to be issued . On redemption, the 
+     * module subtracts the required debt amount from the amount to be redeemed to caller and uses 
+     * those funds to repay the debt on behalf of the SetToken.
      */
     function _resolveEquityPositions(
         ISetToken _setToken,
@@ -275,11 +269,6 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
         internal
         returns (uint256 )
     {
-        // // Swap tokens for aTokens by depositing onto Lender
-        // if(_isIssue)  _preIssueComponents(
-        //     _component, 
-        //     _componentEquityQuantities
-        // );
             uint256 componentQuantity = _componentEquityQuantities;
             if (componentQuantity > 0) {
                 if (_isIssue) {
@@ -341,6 +330,11 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
     }
 
 
+    /**
+     * Since the setToken requires aToken in order to issue sets, and consequently redeems
+     * aTokens. Redeemer requires the underlying asset of aToken to be received. SetToken
+     * withdraws the underlying asset from the lending protocol on behalf of the redeemer. 
+     */
     function _postRedeemComponents(
         address _component,
         uint256 _componentQuantity,
