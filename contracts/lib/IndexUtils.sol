@@ -35,7 +35,6 @@ import { ILendingPool } from "@setprotocol/set-protocol-v2/contracts/interfaces/
 import { ILendingPoolAddressesProvider } from "@setprotocol/set-protocol-v2/contracts/interfaces/external/aave-v2/ILendingPoolAddressesProvider.sol";
 import { IVariableDebtToken } from "@setprotocol/set-protocol-v2/contracts/interfaces/external/aave-v2/IVariableDebtToken.sol";
 import { IAToken } from "@setprotocol/set-protocol-v2/contracts/interfaces/external/aave-v2/IAToken.sol";
-import {console} from "hardhat/console.sol";
 
 /**
  * @title IndexUtils 
@@ -57,6 +56,12 @@ library IndexUtils {
 
     /* =========== SetToken ========== */
 
+    /**
+     * Calculates the factor which represents the issuing cost for one unit of SetToken.
+     * @param _setToken              Instance of SetToken
+     * @return                       The multiplier
+     */
+
     function calculateIssuingFactor(
         ISetToken _setToken
     )
@@ -72,6 +77,16 @@ library IndexUtils {
         ) = levModule.getIssuingMultiplier(_setToken);
         return factor;
     }
+
+    /**
+     * Retrieves the price of an asset in ETH according to data collected by the lending protocol's
+     * Oracle.
+     * @param _setToken                               Instance of SetToken
+     * @param _lendingPoolAddressesProvider           Addresses provider contract of lending protocol
+     * @param _assetType                              Collateral or borrow asset
+
+     * @return _assetPrice                            The calculated price
+     */
 
     function assetPriceInETH(
         ISetToken _setToken,
@@ -94,6 +109,14 @@ library IndexUtils {
         _assetPrice = priceOracle.getAssetPrice(asset) ;
     }
 
+    /**
+     * Calculates the corresponding amount of debt needed to feed to Dex in order.
+     *
+     * First get the debt in borrow asset then get the amount in needed to be provided
+     * by uniswap-like router in order to fulfill the debt calculated in borrow asset.
+     *
+     * This call makes up for uniswap fees
+     */
     function calculateDebtWithSwapFees(
         ISetToken _setToken,
         ILendingPoolAddressesProvider _lendingPoolAddressesProvider,
@@ -127,8 +150,8 @@ library IndexUtils {
      * Note that repayAmount is equal to the withdrawable amount if leverage is greater than
      * (1 + ltv). In that case, it is likely needed to execute multiple consecutive withdrawals.
      * Otherwise repayAmount is the debt of setToken to Aave.
-     * @param _setToken                          instance of SetToken to execute calcs on
-     * @param _lendingPoolAddressesProvider      lending Protocol
+     * @param _setToken                          Instance of SetToken to execute calcs on
+     * @param _lendingPoolAddressesProvider      Lending Protocol addresses info provider
      * @param _router                            Uniswap Router
      * @param _repayAsset                        The asset incurring debt on _setToken to Aave
      * @param _setTokenQuantity                  Quantity of setToken to be redeemed
@@ -145,7 +168,6 @@ library IndexUtils {
     view
     returns (uint256 _repayAmount, uint256 _withdrawable, uint256 _totalDebtETH) 
     {
-        // uint256 _units;
         uint256 totalCollateralETH;
         address collateralAsset = _setToken.getComponents()[0];
         uint256 ltv; 
@@ -155,11 +177,6 @@ library IndexUtils {
             _totalDebtETH,
             ,, ltv,
         ) = ILendingPool(_lendingPoolAddressesProvider.getLendingPool()).getUserAccountData(address(_setToken));
-        
-        // units redeemed according to collateral/debt proportion
-        // updating units because the deviation between dex & oracle prices might cause increase for (c - d) which is anamolous
-        // _units = (totalCollateralETH.sub(_totalDebtETH)).preciseDivCeil(_setToken.totalSupply()).preciseMulCeil(_setTokenQuantity);
-        // _units = _units.preciseDivCeil(_setToken.totalSupply());   // 
         
         if(_totalDebtETH == 0)  return (0, totalCollateralETH, 0);
 
@@ -185,6 +202,13 @@ library IndexUtils {
         _repayAmount = _totalDebtETH.preciseDiv(_setToken.totalSupply()) >= _withdrawable? _withdrawable:_totalDebtETH.preciseDivCeil(_setToken.totalSupply());
     }
 
+    /**
+     * Calculates units required to be redeemed of SetToken according to quantity in question.
+     *
+     * NOTE: _units & _withdrawable are normalized over totalSupply() of Set; since they form
+     * repayAmount which is normalized argument for delever(...)
+     */
+
     function calculateRedeemUnits(
         ISetToken _setToken,
         ILendingPoolAddressesProvider _lendingPoolAddressesProvider,
@@ -207,6 +231,15 @@ library IndexUtils {
     }
 
     /* ========== Lending Protocol ========= */
+    /**
+     * Gets the debt accompanied by a given address to lendingProtocol by viewing the balance
+     * of debtToken minted for the holder by the lendingProtocol.
+     *
+     * @param _lendingPoolAddressesProvider      Lending Protocol addresses info provider
+     * @param _holder                              Holder of the debt
+     * @param _asset                               Asset of the debt to be calculated
+     */
+
     function getDebtAmount(
         ILendingPoolAddressesProvider _lendingPoolAddressesProvider,
         address _holder,

@@ -39,7 +39,6 @@ import { IUniswapV2Router } from "../interfaces/IUniswapV2Router.sol";
 import { PreciseUnitMath } from "@setprotocol/set-protocol-v2/contracts/lib/PreciseUnitMath.sol";
 import { IPriceOracleGetter } from "../interfaces/IPriceOracleGetter.sol";
 import { IndexUtils } from "../lib/IndexUtils.sol";
-import {console} from "hardhat/console.sol";
 
 
 /**
@@ -342,6 +341,7 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
      * Withdraws _collateralAsset from Aave. Performs a DEX trade, exchanging the _collateralAsset for _repayAsset.
      * Repays _repayAsset to Aave and burns corresponding debt tokens.
      * Note: Both collateral and borrow assets need to be enabled, and they must not be the same asset.
+     * 
      * @param _setToken                 Instance of the SetToken
      * @param _collateralAsset          Address of underlying collateral asset being withdrawn
      * @param _repayAsset               Address of underlying borrowed asset being repaid
@@ -416,6 +416,8 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
      * Withdraws _collateralAsset from Aave. Performs a DEX trade, exchanging the _collateralAsset for _repayAsset.
      * Repays _repayAsset to Aave and burns corresponding debt tokens.
      * Note: Both collateral and borrow assets need to be enabled, and they must not be the same asset.
+     *
+     * This logic is critical to be called if position health factor becomes low.
      * @param _setToken                 Instance of the SetToken
      * @param _collateralAsset          Address of underlying collateral asset being withdrawn
      * @param _repayAsset               Address of underlying borrowed asset being repaid
@@ -557,7 +559,7 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
     /**
      * @dev MANAGER ONLY: Removes this module from the SetToken, via call by the SetToken. Any deposited collateral assets
      * are disabled to be used as collateral on Aave. Aave Settings and manager enabled assets state is deleted.      
-     * Note: Function will revert is there is any debt remaining on Aave
+     * Note: Function will revert if there is any debt remaining on Aave
      */
     function removeModule() external override onlyValidAndInitializedSet(ISetToken(msg.sender)) {
         ISetToken setToken = ISetToken(msg.sender);
@@ -690,6 +692,7 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
     /**
      * @dev MODULE ONLY: Hook called prior to looping through each component on redemption. Invokes repay after 
      * the issuance module transfers debt from the issuer. Only callable by valid module.
+     * The call mainly task is to provide enough withdrawable amount for redeemer from SetToken. 
      * @param _setToken             Instance of the SetToken
      * @param _setTokenQuantity     Quantity of SetToken
      * @param _component            Address of component
@@ -735,7 +738,7 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
     }
 
     /**
-     * Returns true if the address is authorized bot 
+     *  Sets the flag of bot permission on setToken to call some module calls 
      */
     function updateAnyBotAllowed( 
         ISetToken _setToken, 
@@ -776,7 +779,17 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
             enabledAssets[_setToken].borrowAssets
         );
     }
-    
+
+    /**
+     * Calculates the multiplier which represents the unit collateral cost to issue one setToken.
+     * L_i: Leverage
+     * p_i-1: init price
+     * p_i: current price
+     * m_i-1: accumulated multiplier
+     * m_i: calculated multiplier
+     * m_i = (L_i (1-p_i-1/p_i) - p_i-1/p_i)  * m_i-1
+     * 
+     */
     function getIssuingMultiplier (
         ISetToken _setToken
     ) 
@@ -1237,6 +1250,7 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
             protocolFee
         );
     }
+
     function _initializeLeveragingStateInfo(
         ISetToken _setToken,
         IERC20 _collateralAssets,
