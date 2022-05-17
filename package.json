@@ -3,7 +3,7 @@
     "test:eco": "npx hardhat test test/ecosystem.spec.ts",
     "test:fees": "npx hardhat test test/streamingFeeModule.spec.ts",
     "test:scenarios": "npx hardhat test test/l3xAaveLeverageModule.scenarios.spec.ts",
-    "test:issuance": "npx hardhat test test/l3xAaveLeverageModule.issaunce.spec.ts",
+    "test:issuance": "npx hardhat test test/l3xAaveLeverageModule.issuance.spec.ts",
     "test:other": "npx hardhat test test/l3xAaveLeverageModule.other.spec.ts",
     "test:slippage": "npx hardhat test test/l3xAaveLeverageModule.slippage.spec.ts"
   },
