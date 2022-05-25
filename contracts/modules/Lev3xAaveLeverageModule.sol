@@ -1250,7 +1250,6 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
             protocolFee
         );
     }
-
     function _initializeLeveragingStateInfo(
         ISetToken _setToken,
         IERC20 _collateralAssets,

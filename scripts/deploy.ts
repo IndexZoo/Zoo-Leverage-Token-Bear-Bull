@@ -1,30 +1,70 @@
-// We require the Hardhat Runtime Environment explicitly here. This is optional
-// but useful for running the script in a standalone fashion through `node <script>`.
-//
-// When running the script with `npx hardhat run <script>` you'll find the Hardhat
-// Runtime Environment's members available in the global scope.
-import { ethers } from "hardhat";
+import hre, { ethers } from "hardhat";
+import { ADDRESS_ZERO, MAX_UINT_256 } from "../utils/constants";
+import { Controller } from "../typechain-types/Controller";
+import { SetTokenCreator } from "../typechain-types/SetTokenCreator";
+import { Lev3xIssuanceModule } from "../typechain-types/Lev3xIssuanceModule";
 
-async function main() {
-  // Hardhat always runs the compile task when running scripts with its command
-  // line interface.
-  //
-  // If this script is run directly using `node` you may want to call compile
-  // manually to make sure everything is compiled
-  // await hre.run('compile');
+import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
+import { HardhatNetworkConfig  } from "hardhat/types";
+import { Lev3xAaveLeverageModule__factory } from "@typechain/factories/Lev3xAaveLeverageModule__factory";
 
-  // We get the contract to deploy
-  const Greeter = await ethers.getContractFactory("Greeter");
-  const greeter = await Greeter.deploy("Hello, Hardhat!");
+import D from "./deployments";
+import { Lev3xIssuanceModule__factory } from "@typechain/factories/Lev3xIssuanceModule__factory";
+import { Lev3xAaveLeverageModule } from "@typechain/Lev3xAaveLeverageModule";
 
-  await greeter.deployed();
-
-  console.log("Greeter deployed to:", greeter.address);
+interface HreDto extends HardhatNetworkConfig{
+  lendingPoolAddressesProvider: string,
+  uniswapRouterAddress: string,
+  weth: string
 }
 
-// We recommend this pattern to be able to use async/await everywhere
-// and properly handle errors.
-main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+
+async function main() {
+    const netConfig = hre.network.config as HreDto;
+    const deployer: SignerWithAddress = (await ethers.getSigners())[0];
+  
+    console.log("Deploying contracts with the account:", deployer.address);
+  
+    console.log("Account balance:", (await deployer.getBalance()).toString());
+
+    let indexUtilsLib = await (await ethers.getContractFactory("IndexUtils")).deploy();
+    let aaveV2Lib = await (await ethers.getContractFactory("AaveV2")).deploy();
+    let Lev3xAaveLeverageModuleFactory = await ethers.getContractFactory(
+      "Lev3xAaveLeverageModule",{
+        libraries: {
+          AaveV2: aaveV2Lib.address,
+          IndexUtils: indexUtilsLib.address
+        } 
+      });
+  
+    const Lev3xIssuanceModuleFactory: Lev3xIssuanceModule__factory = await ethers.getContractFactory(
+      "Lev3xIssuanceModule", {
+        libraries: {
+          IndexUtils: indexUtilsLib.address
+        }
+      }
+    );
+    let controller: Controller = await ethers.getContractAt("Controller", D.polygon.controller);
+    console.log("Controller address: ", controller.address);
+    let lev3xIssuanceModule: Lev3xIssuanceModule = await Lev3xIssuanceModuleFactory.deploy(
+        controller.address,
+        netConfig.lendingPoolAddressesProvider
+    );
+    console.log("Lev3xIssuanceModule : ", lev3xIssuanceModule.address);
+
+    let lev3xAaveLeverageModule: Lev3xAaveLeverageModule = await Lev3xAaveLeverageModuleFactory.deploy(
+        controller.address,
+        netConfig.lendingPoolAddressesProvider
+    );
+    console.log("Lev3xAaveLeverageModule : ", lev3xAaveLeverageModule.address);
+
+    // let setTokenCreator: SetTokenCreator = await (await ethers.getContractFactory("SetTokenCreator")).deploy(controller.address);
+    // console.log("SetTokenCreator address: ", setTokenCreator.address);
+}
+
+  main()
+    .then(() => process.exit(0))
+    .catch((error) => {
+      console.error(error);
+      process.exit(1);
+    });
