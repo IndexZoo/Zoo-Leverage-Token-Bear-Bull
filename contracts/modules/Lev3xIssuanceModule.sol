@@ -74,11 +74,8 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
     }
 
     /**
-     * Deposits components to the SetToken, replicates any external module component positions and mints 
-     * the SetToken. If the token has a debt position all collateral will be transferred after deducting
-     * amount of debt according to price of collateral asset in terms of borrow asset specified by the 
-     * lending protocol's oracle.
-     *     
+     * Deposits stable asset (e.g. usdc) to the index and mints 
+     * quantity of the index leverage token. Amount of asset to be received is proportional to quantity.
      *
      * @param _setToken         Instance of the SetToken to issue
      * @param _quantity         Quantity of SetToken to issue
@@ -141,7 +138,7 @@ contract Lev3xIssuanceModule is DebtIssuanceModule {
      * Returns components from the SetToken, unwinds any external module component positions and burns the SetToken.
      * If the token has debt positions, the module transfers the equity after deducting the debt amount for the user.
      * 
-     * redeemed_equity = (collateral - debt) * quantity / total_supply
+     * redeemed_equity_per_index = (collateral - debt) * quantity / index_total_supply
      * 
      * @param _setToken              Instance of the SetToken to redeem
      * @param _quantity              Quantity of SetToken to redeem

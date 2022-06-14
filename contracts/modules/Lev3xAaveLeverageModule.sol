@@ -300,10 +300,22 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
     /* ============ External Functions ============ */
 
     /**
-     * @dev MANAGER ONLY: Increases leverage for a given collateral position using an enabled borrow asset.
-     * Borrows _borrowAsset from Aave. Performs a DEX trade, exchanging the _borrowAsset for _collateralAsset.
-     * Deposits _collateralAsset to Aave and mints corresponding aToken.
-     * Note: Both collateral and borrow assets need to be enabled, and they must not be the same asset.
+     * @dev MANAGER ONLY: Increases leverage for a given base (collateral) token using an enabled borrow asset 
+     * (e.g. usdc in bull case). Borrows _borrowAsset from Aave. Performs a DEX trade, exchanging the 
+     * _borrowAsset for _collateralAsset. Deposits _collateralAsset to Aave and mints corresponding aToken.
+     * Note: Both collateral and borrow assets need to be enabled, and they must not be the same asset. Do this
+     * on Initialize.
+     * Note: example: 
+     *  lever(
+     *    index.address,
+     *    usdc.address,     // borrow asset
+     *    weth.address,     // collateral asset 
+     *    ether(800),       // quantityUnit = totalQuantityToBorrow/totalSupplyOfIndex
+     *    ether(0.75),      // minQuantityUnit = totalQuantityToReceiveSwap/totalSupplyOfIndex
+     *    "UNISWAP",
+     *    "0x"
+     *  );
+     *
      * @param _setToken                     Instance of the SetToken
      * @param _borrowAsset                  Address of underlying asset being borrowed for leverage
      * @param _collateralAsset              Address of underlying collateral asset
@@ -337,10 +349,11 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
     }
     
     /**
-     * @dev MANAGER ONLY: Decrease leverage for a given collateral position using an enabled borrow asset.
-     * Withdraws _collateralAsset from Aave. Performs a DEX trade, exchanging the _collateralAsset for _repayAsset.
-     * Repays _repayAsset to Aave and burns corresponding debt tokens.
-     * Note: Both collateral and borrow assets need to be enabled, and they must not be the same asset.
+     * @dev MANAGER ONLY: Decrease leverage for a given collateral (base) token using an enabled borrow asset.
+     * Withdraws _collateralAsset from Aave. Performs a DEX trade, exchanging the _collateralAsset for _repayAsset 
+     * (i.e. borrowAsset). Repays _repayAsset to Aave and decreases leverage of index accordingly.
+     * Note: Both collateral and borrow assets need to be enabled, and they must not be the same asset. Do this
+     * on initialize.
      * 
      * @param _setToken                 Instance of the SetToken
      * @param _collateralAsset          Address of underlying collateral asset being withdrawn
@@ -375,10 +388,11 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
     }
 
     /**
-     * @dev AUTHORIZED CALLER (BOT) ONLY: Increases leverage for a given collateral position using an enabled borrow asset.
-     * Borrows _borrowAsset from Aave. Performs a DEX trade, exchanging the _borrowAsset for _collateralAsset.
-     * Deposits _collateralAsset to Aave and mints corresponding aToken.
-     * Note: Both collateral and borrow assets need to be enabled, and they must not be the same asset.
+     * @dev AUTHORIZED CALLER (BOT) ONLY: Increases leverage for a given base (collateral) token using an enabled borrow asset 
+     * (e.g. usdc in bull case). Borrows _borrowAsset from Aave. Performs a DEX trade, exchanging the 
+     * _borrowAsset for _collateralAsset. Deposits _collateralAsset to Aave and mints corresponding aToken.
+     * Note: Both collateral and borrow assets need to be enabled, and they must not be the same asset. Do this
+     * on Initialize.
      * @param _setToken                     Instance of the SetToken
      * @param _borrowAsset                  Address of underlying asset being borrowed for leverage
      * @param _collateralAsset              Address of underlying collateral asset
@@ -412,12 +426,14 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
     }
     
     /**
-     * @dev AUTHORIZED CALLER (BOT) ONLY: Decrease leverage for a given collateral position using an enabled borrow asset.
-     * Withdraws _collateralAsset from Aave. Performs a DEX trade, exchanging the _collateralAsset for _repayAsset.
-     * Repays _repayAsset to Aave and burns corresponding debt tokens.
-     * Note: Both collateral and borrow assets need to be enabled, and they must not be the same asset.
+     * @dev AUTHORIZED CALLER (BOT) ONLY: Decrease leverage for a given collateral (base) token using an enabled borrow asset.
+     * Withdraws _collateralAsset from Aave. Performs a DEX trade, exchanging the _collateralAsset for _repayAsset 
+     * (i.e. borrowAsset). Repays _repayAsset to Aave and decreases leverage of index accordingly.
+     * Note: Both collateral and borrow assets need to be enabled, and they must not be the same asset. Do this
+     * on initialize.
      *
-     * This logic is critical to be called if position health factor becomes low.
+     * Note: This is CRITICAL to be called if position health factor becomes low.
+     *
      * @param _setToken                 Instance of the SetToken
      * @param _collateralAsset          Address of underlying collateral asset being withdrawn
      * @param _repayAsset               Address of underlying borrowed asset being repaid
@@ -450,7 +466,9 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
         );
     }
 
-    /** @dev MANAGER ONLY: Pays down the borrow asset to 0 selling off a given amount of collateral asset. 
+    /**
+     * IMPLEMENTED BY SETLABS
+     * @dev MANAGER ONLY: Pays down the borrow asset to 0 selling off a given amount of collateral asset. 
      * Withdraws _collateralAsset from Aave. Performs a DEX trade, exchanging the _collateralAsset for _repayAsset. 
      * Minimum receive amount for the DEX trade is set to the current variable debt balance of the borrow asset. 
      * Repays received _repayAsset to Aave which burns corresponding debt tokens. Any extra received borrow asset is .
@@ -738,7 +756,10 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
     }
 
     /**
-     *  Sets the flag of bot permission on setToken to call some module calls 
+     * @dev Sets the flag of bot permission on setToken to call module calls that are authorized for bots.
+     * @param _setToken             Instance of the SetToken
+     * @param _allowed              Flag to be assigned
+     *  
      */
     function updateAnyBotAllowed( 
         ISetToken _setToken, 
@@ -752,7 +773,10 @@ contract Lev3xAaveLeverageModule is ModuleBase, ReentrancyGuard, Ownable, IModul
     }
 
     /**
-     * Returns true if the address is authorized bot 
+     * @dev Registers a bot to call authorized calls by setting a flag on its address for a specified setToken 
+     * @param _setToken             Instance of the SetToken
+     * @param _caller               Address of bot to be permitted (or prevented)
+     * @param _allowed              Flag to be assigned
      */
     function setCallerPermission( 
         ISetToken _setToken, 
