@@ -1,6 +1,7 @@
 require("dotenv").config();
 
 import { HardhatUserConfig, task } from "hardhat/config";
+import {privateKeys } from "./utils/wallets";
 import "@nomiclabs/hardhat-waffle";
 import "@typechain/hardhat";
 
@@ -17,6 +18,11 @@ import "@typechain/hardhat";
 // You need to export an object to set up your config
 // Go to https://hardhat.org/config/ to learn more
 
+const forkingConfig = {
+  url: `https://eth-mainnet.alchemyapi.io/v2/${process.env.ALCHEMY_TOKEN}`,
+  blockNumber: 12198000,
+};
+
 const config: HardhatUserConfig = {
   solidity: {
     version: "0.6.10",
@@ -26,6 +32,8 @@ const config: HardhatUserConfig = {
   },
   networks: {
     hardhat: {
+      forking: (process.env.FORK) ? forkingConfig : undefined,
+      accounts: getHardhatPrivateKeys(),
       allowUnlimitedContractSize: true
     },
     rinkeby: {
@@ -55,5 +63,15 @@ const config: HardhatUserConfig = {
     externalArtifacts: ["external/**/*.json" ],
   },
 };
+
+function getHardhatPrivateKeys() {
+  return privateKeys.map(key => {
+    const ONE_MILLION_ETH = "1000000000000000000000000";
+    return {
+      privateKey: key,
+      balance: ONE_MILLION_ETH,
+    };
+  });
+}
 
 export default config;

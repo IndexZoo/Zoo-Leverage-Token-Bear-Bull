@@ -26,6 +26,12 @@ const DEPLOYMENTS =  {
         MATIC: "0x7d1afa7b718fb893db30a3abc0cfc608aacfebb0",
         USDT: "0xdac17f958d2ee523a2206206994597c13d831ec7",
         DAI: "0x6b175474e89094c44da98b954eedeac495271d0f"
+    },
+    polygon2: {
+        controller: "0xB8E1eBF8874186b5E44CFAbf1eE2d9323D039112",
+        setTokenCreator: "0x78b5989603c34F6fEbC9d03Cd7b798155514737c",
+        aWmatic: "0x8dF3aad3a84da6b69A4DA8aeC3eA40d9091B2Ac4",
+        mtcx3: "0xcd15de9546390f5ee242601d425cf92b812c420d"
     }
 }
 
