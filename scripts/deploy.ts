@@ -44,7 +44,7 @@ async function main() {
         }
       }
     );
-    let controller: Controller = await ethers.getContractAt("Controller", D.polygon.controller);
+    let controller: Controller = await ethers.getContractAt("Controller", D.polygon2.controller);
     console.log("Controller address: ", controller.address);
     let lev3xIssuanceModule: Lev3xIssuanceModule = await Lev3xIssuanceModuleFactory.deploy(
         controller.address,

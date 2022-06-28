@@ -28,10 +28,19 @@ const DEPLOYMENTS =  {
         DAI: "0x6b175474e89094c44da98b954eedeac495271d0f"
     },
     polygon2: {
+        integration: "0xFd826814Dca5fcB5D43721d755375F020Fe27FD1",
+        Lev3xIssuanceModule:  "0x0789e4fc07966B29458FDDB740d9ecD10Df3B9C8",
+        Lev3xAaveLeverageModule:  "0xa775109258Ae4cA917b9694c03ff79B620933355",
         controller: "0xB8E1eBF8874186b5E44CFAbf1eE2d9323D039112",
         setTokenCreator: "0x78b5989603c34F6fEbC9d03Cd7b798155514737c",
         aWmatic: "0x8dF3aad3a84da6b69A4DA8aeC3eA40d9091B2Ac4",
-        mtcx3: "0xcd15de9546390f5ee242601d425cf92b812c420d"
+        wmatic: "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270",
+        dai: "0x8f3cf7ad23cd3cadbd9735aff958023239c6a063",
+        mtcx3: "0xcd15de9546390f5ee242601d425cf92b812c420d",
+        sushi: "0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506",
+        adapter: "0x357788Fc40d7b6582C04e9D5a9C5Bf81fe794DA3",
+        adapter_stale: "0xaA4f611d501622131F1D4983a7D39d3f273f9107"   // router adapter ERROR
+
     }
 }
 
