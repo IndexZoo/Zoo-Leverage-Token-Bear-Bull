@@ -26,3 +26,11 @@ await issueModule.issue("0xcd15de9546390f5ee242601d425cf92b812c420d", "100000000
 ![alt](./issue-1-interactions%20with%20aave.png "")
 
 ### Leverage
+- At this point manager (or a bot) jumps in and apply leverage on the index
+```
+await levModule.lever("0xcd15de9546390f5ee242601d425cf92b812c420d", "0x8f3cf7ad23cd3cadbd9735aff958023239c6a063", "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270", ether(0.2), "0", "UNISWAP", "0x"); // twice
+```
+- Notice here index starts to receive debt tokens (awMatic) after applying the leverage
+
+![alt](./lever%232.png "")
+- This will eb applied successively (i.e. with proper ratios), according to how SetProtocol was setup, so you endup getting the target leverage.
