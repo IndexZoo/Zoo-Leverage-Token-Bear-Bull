@@ -34,3 +34,17 @@ await levModule.lever("0xcd15de9546390f5ee242601d425cf92b812c420d", "0x8f3cf7ad2
 
 ![alt](./lever%232.png "")
 - This will eb applied successively (i.e. with proper ratios), according to how SetProtocol was setup, so you endup getting the target leverage.
+
+## Bear Index
+### Setup
+- create index and get it
+- get modules
+- initialize issuance / updateAllowed / init aave / register issuance to aaave if not already registered
+### call to action
+- bear issue: approve usage of dai
+- process inside issuanceModule
+- personal wallet contains money now
+- index contains dai now
+- Process of leverage / command lever
+- Index contains more dai
+- Another lever / Index contains more dai

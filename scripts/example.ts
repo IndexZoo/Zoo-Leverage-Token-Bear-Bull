@@ -44,13 +44,13 @@ async function main() {
 
     // add integration for default issuance
     await lev3xAaveLeverageModule.updateAllowedSetToken(index.address, true);
-    await lev3xAaveLeverageModule.initialize(index.address,  D.polygon2.wmatic, D.polygon2.dai);
+    await lev3xAaveLeverageModule.initialize(index.address,  D.polygon2.wmatic, D.polygon2.dai);   // reverse if Bear Index
     await lev3xAaveLeverageModule.registerToModule(index.address, lev3xIssuanceModule.address);
 
 
     // issue index
     // approve wmatic
-    // await issueModule.issue("0xcd15de9546390f5ee242601d425cf92b812c420d", "1000000000000000", "0x55ec991D34569941a77e90b54Fcc3e687234FfCD", "1500000000000000")
+    // await lev3xIssuanceModule.issue("0xcd15de9546390f5ee242601d425cf92b812c420d", "1000000000000000", "0x55ec991D34569941a77e90b54Fcc3e687234FfCD", "1500000000000000")
 
 
     // leverage index
@@ -68,6 +68,18 @@ async function createIndex() {
         lev3xAaveLeverageModule.address,
         lev3xIssuanceModule.address
       ],  deployer.address, "wmatic Lev3x", "MTCx3");
+}
+
+async function createBearIndex() {
+    let setTokenCreator: SetTokenCreator = await ethers.getContractAt("SetTokenCreator", D.polygon2.setTokenCreator);
+
+    await setTokenCreator.create(
+      [D.polygon2.adai], 
+      [ether(0.001)], 
+      [
+        lev3xAaveLeverageModule.address,
+        lev3xIssuanceModule.address
+      ],  deployer.address, "Bear", "MTCBEAR");
 }
 
   main()

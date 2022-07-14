@@ -37,8 +37,10 @@ const DEPLOYMENTS =  {
         wmatic: "0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270",
         dai: "0x8f3cf7ad23cd3cadbd9735aff958023239c6a063",
         mtcx3: "0xcd15de9546390f5ee242601d425cf92b812c420d",
+        mtcbear: "0x2ff52C2252c5A0E436683701f5b632d585ee55C9",
         sushi: "0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506",
         adapter: "0x357788Fc40d7b6582C04e9D5a9C5Bf81fe794DA3",
+        adai: "0x27F8D03b3a2196956ED754baDc28D73be8830A6e",
         adapter_stale: "0xaA4f611d501622131F1D4983a7D39d3f273f9107"   // router adapter ERROR
 
     }
