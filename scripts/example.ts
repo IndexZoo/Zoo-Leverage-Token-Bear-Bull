@@ -42,7 +42,7 @@ async function main() {
     let index = await ethers.getContractAt("SetToken", D.polygon2.mtcx3) as SetToken;
     await lev3xIssuanceModule .initialize(index.address, ether(0), ether(0), ether(0), deployer.address, ADDRESS_ZERO);
 
-    // add integration for default issuance
+    // DO: add integration for default issuance
     await lev3xAaveLeverageModule.updateAllowedSetToken(index.address, true);
     await lev3xAaveLeverageModule.initialize(index.address,  D.polygon2.wmatic, D.polygon2.dai);   // reverse if Bear Index
     await lev3xAaveLeverageModule.registerToModule(index.address, lev3xIssuanceModule.address);

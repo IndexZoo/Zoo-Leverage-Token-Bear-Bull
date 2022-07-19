@@ -37,14 +37,45 @@ await levModule.lever("0xcd15de9546390f5ee242601d425cf92b812c420d", "0x8f3cf7ad2
 
 ## Bear Index
 ### Setup
-- create index and get it
-- get modules
-- initialize issuance / updateAllowed / init aave / register issuance to aaave if not already registered
-### call to action
-- bear issue: approve usage of dai
-- process inside issuanceModule
-- personal wallet contains money now
-- index contains dai now
-- Process of leverage / command lever
-- Index contains more dai
-- Another lever / Index contains more dai
+- Create an index (SetToken) with dai representing the component of the set.
+```
+await setTokenCreator.create(
+ [D.polygon2.adai], 
+ [ether(0.01)], 
+ [
+   lev3xAaveLeverageModule.address,
+   lev3xIssuanceModule.address
+ ],  deployer.address, "Bear", "MTCBEAR"
+);
+```
+- Comfigure IssuanceModule & AaveLeverageModule  with new Bear index
+```
+await lev3xIssuanceModule .initialize(index.address, ether(0), ether(0), ether(0), deployer.address, ADDRESS_ZERO);
+await lev3xAaveLeverageModule.updateAllowedSetToken(index.address, true);
+await lev3xAaveLeverageModule.initialize(index.address,  D.polygon2.dai, D.polygon2.wmatic);   
+await lev3xAaveLeverageModule.registerToModule(index.address, lev3xIssuanceModule.address);
+```
+### Short sell the matic 
+- After approving IssuanceModule, go ahead issue new tokens from bear index
+```
+await lev3xIssuanceModule.issue(index.address, "1000000000000000000", deployer.address, "1500000000000000000")
+```
+  - Approving IssuanceModule
+![alt](./bearIssuance%232-approve-dai.png "")
+  - Index internal interactions
+![alt](./bearIssuance%233-issue-bears.png "")
+  - Metamask wallet shows the balance of the newly created Bear index 
+![alt](./bearIssuance%234-bears-in-wallet.png "")
+  - Bear index itself holds the dai used to issue the index
+![alt](./bearIssuance%235-index-assets.png "")
+
+- Manager Leverages the index, 
+```
+await lev3xAaveLeverageModule.lever(index.address, D.polygon2.wmatic, D.polygon2.dai, ether(0.0002), "0", "UNISWAP", "0x")
+```
+  - Internal interactions
+![alt](./bearLever%231.png "")
+  - Index now holds more dai due to leveraging
+![alt](./bearLever%232-index-assets.png "")
+  - Another leverage
+![alt](./bearLever%233-index-assets.png "")
