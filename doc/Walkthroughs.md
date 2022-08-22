@@ -6,6 +6,7 @@
 - Initialize the leverage related modules after having controller and rest of ecosystem already deployed. 
 ```javascript
 await lev3xIssuanceModule .initialize(index.address, ether(0), ether(0), ether(0), deployer.address, ADDRESS_ZERO);
+await lev3xAaveLeverageModule.updateAllowedSetToken(index.address, true);
 await lev3xAaveLeverageModule.initialize(index.address,  D.polygon2.wmatic, D.polygon2.dai);
 ```
 - In order to initialize `Lev3xAaveLeverageModul` make sure you allow the index and register the issuance module in that order.
@@ -14,6 +15,7 @@ await lev3xAaveLeverageModule.updateAllowedSetToken(index.address, true);
 await lev3xAaveLeverageModule.initialize(index.address,  D.polygon2.wmatic, D.polygon2.dai);
 await lev3xAaveLeverageModule.registerToModule(index.address, lev3xIssuanceModule.address);
 ```
+- Note that `registerToModule` might throw an error if module is already registered with the issuance.
 ### Issue
 - Issue new 0.001 index
 ```typescript
